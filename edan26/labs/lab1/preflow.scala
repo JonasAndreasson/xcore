@@ -7,6 +7,7 @@ import akka.util.Timeout
 import scala.concurrent.{Await,ExecutionContext,Future,Promise}
 import scala.concurrent.duration._
 import scala.language.postfixOps
+import scala.collection.mutable.Set
 import scala.io._
 
 case class Flow(f: Int)
@@ -15,8 +16,10 @@ case class Control(control:ActorRef)
 case class Source(n: Int)
 case class Increase(f: Int)
 case class Height(h: Int)
+case class AreYouDone(i: Int)
+case class AmDone(i: Int, b: Boolean)
+case class Complete(i: Int)
 
-case object Done
 case object Print
 case object PushMax
 case object Start
@@ -25,10 +28,9 @@ case object Maxflow
 case object Sink
 case object Hello
 case object H
-case object IsSolved
 case object PreflowPush
-case object NoLongerDone
 case object IsDone
+case object IsAlive
 
 class Edge(var u: ActorRef, var v: ActorRef, var c: Int) {
 	var	f = 0
@@ -47,7 +49,7 @@ class Node(val index: Int) extends Actor {
 	var	edge: List[Edge] = Nil		/* adjacency list with edge objects shared with other nodes.	*/
 	var	debug = true			/* to enable printing.						*/
 	var counter = 0
-	var isDone = false
+	var isDone = true
 	def min(a:Int, b:Int) : Int = { if (a < b) a else b }
 
 	def id: String = "@" + index;
@@ -74,6 +76,7 @@ class Node(val index: Int) extends Actor {
 	}
 
 	def push(ed : Edge,  v : ActorRef): Int = {
+		control ! IsAlive
 		if (self == ed.u){ //Positive flow // u == self
 			val d = min(e,ed.c-ed.f)
 			if (d <= 0){
@@ -117,11 +120,7 @@ class Node(val index: Int) extends Actor {
 
 	case PreflowPush => {
 		if (e == 0 || sink || source){
-			if (!source && !sink){
-				isDone = true
-				println(id +"Done! e="+e)
-				control ! Done
-			}
+			control ! IsDone
 		}else{
 			counter = 0
 			for (neigh <- edge){
@@ -137,17 +136,13 @@ class Node(val index: Int) extends Actor {
 				if (e.v == sender) target = e
 				if (e.u == sender) target = e
 			}
-			if (target == null){
-			}
+			if (target == null){} 
 			else{
 				val d = push(target, sender) // Edge, Recieving Node
-				if (d == 0){
+				if (d==0){
 					counter+=1
-					if (counter >= edge.length){
-					relabel
-					self ! PreflowPush
 				}
-				}
+				self ! PreflowPush
 			}
 			
 		} else {
@@ -158,13 +153,6 @@ class Node(val index: Int) extends Actor {
 			}
 		}
 	}
-	
-	case NoLongerDone => {
-		if (isDone){
-			control ! NoLongerDone
-			isDone = false
-		}
-	}
 
 	case PushMax => {
 		for (e <- edge){
@@ -172,24 +160,17 @@ class Node(val index: Int) extends Actor {
 			other(e, self) ! Increase(e.f)
 		}
 	}
+	case AreYouDone(counter: Int) => {
+		if(source || sink || e == 0){
+			sender ! AmDone(counter, true)
+		} else {
+			sender ! AmDone(counter, false)
+		}
+	}
 
 	case Increase(f:Int) => {
 		this.e = this.e + f
-		if (isDone){
-			control ! NoLongerDone
-			isDone = false
-		}
 		self ! PreflowPush
-	}
-	case IsDone => {
-		if (isDone || source || sink){
-			sender ! true
-		}
-		else {
-			sender ! false
-		}
-
-
 	}
 
 	case _		=> {
@@ -205,12 +186,12 @@ class Preflow extends Actor
 {
 	var	s	= 0;			/* index of source node.					*/
 	var	t	= 0;			/* index of sink node.					*/
-	var	n	= 0;			/* number of vertices in the graph.				*/
+	var	n	= 0;
+	var counter = 0;			/* number of vertices in the graph.				*/
 	var	edge:Array[Edge]	= null	/* edges in the graph.						*/
 	var	node:Array[ActorRef]	= null	/* vertices in the graph.					*/
 	var	ret:ActorRef 		= null	/* Actor to send result to.					*/
-	var nrCompletedNodes = 2
-	var done = false;
+	var unfinishedNodes:Set[ActorRef] = Set()
 	def receive = {
 
 	case node:Array[ActorRef]	=> {
@@ -228,36 +209,36 @@ class Preflow extends Actor
 		ret ! f			/* somebody (hopefully the sink) told us its current excess preflow. */
 	}
 
-	case Done => {
-		nrCompletedNodes+=1
-		if (nrCompletedNodes == n) {
-			nrCompletedNodes = 0
-			for (i <- node){
-				i ! IsDone
-			}
-		}
-	}
-	case done:Boolean => {
-		if (done){
-			nrCompletedNodes += 1
-		}
-		else{
-			nrCompletedNodes = 0
-		}
-		if (nrCompletedNodes == n){
-			node(t) ! Excess
-		}
-	}
-	
-	case NoLongerDone => {
-		nrCompletedNodes-=1
-	}
-
 	case Maxflow => {
 		ret = sender
 		node(s) ! Source(n)
 		node(t) ! Sink
 		node(s) ! PushMax
+
+	}
+	case IsAlive => {
+		counter+=1
+	}
+
+	case IsDone => {
+		unfinishedNodes = Set()
+		counter += 1
+		for (nd <- node){
+			nd ! AreYouDone(counter)
+			unfinishedNodes+=nd
+		}
+	}
+	case AmDone(counter: Int, done: Boolean) => {
+		if(done && counter == this.counter){
+			unfinishedNodes-=sender
+		}
+		if(unfinishedNodes.isEmpty){
+			self ! Complete(counter)
+		}
+	}
+
+	case Complete(counter:Int) => {
+		if (counter == this.counter) node(t) ! Excess
 	}
 	}
 }
