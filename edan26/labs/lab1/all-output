@@ -1,0 +1,55 @@
+copying runtime jar...
+[info] welcome to sbt 1.3.13 (Private Build Java 17.0.5)
+[info] loading project definition from /mnt/c/Users/mrmrj/Desktop/edan26/labs/lab1/project
+[info] loading settings for project lab1 from build.sbt ...
+[info] running main 
+13:41:27.411 [Main-akka.actor.default-dispatcher-4] INFO akka.event.slf4j.Slf4jLogger - Slf4jLogger started
+@2Done! e=0
+@1Done! e=0
+@1Done! e=0
+@1Done! e=0
+@1Done! e=0
+@1Done! e=0
+@1Done! e=0
+@1Done! e=0
+@1Done! e=0
+@2Done! e=0
+@1Done! e=0
+f = 60
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@2Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+@3Done! e=0
+13:41:27.493 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.DeadLetterActorRef - Message [java.lang.Integer] from Actor[akka://Main/user/control#-505979480] to Actor[akka://Main/deadLetters] was not delivered. [1] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/deadLetters] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.494 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [2] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.495 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [3] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.495 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [4] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.495 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [5] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.495 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [6] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.495 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [7] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.495 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [8] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.496 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [9] dead letters encountered. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+13:41:27.496 [Main-akka.actor.default-dispatcher-17] INFO akka.actor.RepointableActorRef - Message [Done$] from Actor[akka://Main/user/v3#1354344652] to Actor[akka://Main/user/control#-505979480] was not delivered. [10] dead letters encountered, no more dead letters will be logged in next [5.000 min]. If this is not an expected behavior then Actor[akka://Main/user/control#-505979480] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'.
+t = 0.327 s

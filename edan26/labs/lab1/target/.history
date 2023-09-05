@@ -1,0 +1,11 @@
+preflow.scala
+reStart
+preflow
+preflow.scala
+reload
+run jar preflow.scala
+run
+run jar preflow.scala
+run
+run < ../data/railwayplanning/0mini.in
+run
