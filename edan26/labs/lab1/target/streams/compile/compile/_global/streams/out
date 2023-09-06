@@ -1,7 +1,0 @@
-[0m[[0m[31merror[0m] [0m[0m/mnt/c/Users/mrmrj/Desktop/edan26/labs/lab1/preflow.scala:183:7: not found: value IsDone[0m
-[0m[[0m[31merror[0m] [0m[0m	case IsDone => {[0m
-[0m[[0m[31merror[0m] [0m[0m	     ^[0m
-[0m[[0m[31merror[0m] [0m[0m/mnt/c/Users/mrmrj/Desktop/edan26/labs/lab1/preflow.scala:235:9: not found: value isDone[0m
-[0m[[0m[31merror[0m] [0m[0m				i ! isDone[0m
-[0m[[0m[31merror[0m] [0m[0m				    ^[0m
-[0m[[0m[31merror[0m] [0m[0mtwo errors found[0m

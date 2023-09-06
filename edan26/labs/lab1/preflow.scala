@@ -7,8 +7,9 @@ import akka.util.Timeout
 import scala.concurrent.{Await,ExecutionContext,Future,Promise}
 import scala.concurrent.duration._
 import scala.language.postfixOps
-import scala.collection.mutable.Set
+import scala.collection.mutable.Map
 import scala.io._
+
 
 case class Flow(f: Int)
 case class Debug(debug: Boolean)
@@ -16,9 +17,7 @@ case class Control(control:ActorRef)
 case class Source(n: Int)
 case class Increase(f: Int)
 case class Height(h: Int)
-case class AreYouDone(i: Int)
-case class AmDone(i: Int, b: Boolean)
-case class Complete(i: Int)
+case class Push(h: Int, pushVal: Int, ed: Edge)
 
 case object Print
 case object PushMax
@@ -26,11 +25,13 @@ case object Start
 case object Excess
 case object Maxflow
 case object Sink
-case object Hello
 case object H
-case object PreflowPush
-case object IsDone
-case object IsAlive
+case object CheckFlow
+case object InitializeFlow
+case object ACKPush
+case object NACKPush
+case object Done
+case object NoLongerDone
 
 class Edge(var u: ActorRef, var v: ActorRef, var c: Int) {
 	var	f = 0
@@ -47,10 +48,11 @@ class Node(val index: Int) extends Actor {
 	var	source:Boolean	= false		/* true if we are the source.					*/
 	var	sink:Boolean	= false		/* true if we are the sink.					*/
 	var	edge: List[Edge] = Nil		/* adjacency list with edge objects shared with other nodes.	*/
-	var	debug = true			/* to enable printing.						*/
-	var counter = 0
-	var isDone = true
-	def min(a:Int, b:Int) : Int = { if (a < b) a else b }
+	var	debug = false			/* to enable printing.						*/
+    var isDone = false
+	var buffer:Map[ActorRef,Int] = Map()
+	var counter:Int = 0
+    def min(a:Int, b:Int) : Int = { if (a < b) a else b }
 
 	def id: String = "@" + index;
 
@@ -61,11 +63,6 @@ class Node(val index: Int) extends Actor {
 	def enter(func: String): Unit = { if (debug) { println(id + " enters " + func); status } }
 	def exit(func: String): Unit = { if (debug) { println(id + " exits " + func); status } }
 
-	def increase(f: Int): Unit = {
-		this.e = this.e + f
-		self ! PreflowPush
-	}
-
 	def relabel : Unit = {
 
 		enter("relabel")
@@ -75,28 +72,14 @@ class Node(val index: Int) extends Actor {
 		exit("relabel")
 	}
 
-	def push(ed : Edge,  v : ActorRef): Int = {
-		control ! IsAlive
-		if (self == ed.u){ //Positive flow // u == self
-			val d = min(e,ed.c-ed.f)
-			if (d <= 0){
-				return 0
-			}
-			ed.f+=d
-			v ! Increase(d)
-			increase(-d)
-			return d
-		}else { //negative flow
-			val d = min(e,ed.c+ed.f)
-			if (d <= 0){
-				return 0
-			}
-			ed.f-=d
-			v ! Increase(d)
-			increase(-d)
-			return d
-		}
-	}
+    def addToBuffer(key: ActorRef, value: Int) : Unit = {
+		println("Adding"+value+"to buffer, e = "+e)
+        e -= value
+        buffer += (key -> value)
+		println("Added	"+value+"to buffer, e = "+e)
+    }
+
+
 
 	def receive = {
 
@@ -114,64 +97,107 @@ class Node(val index: Int) extends Actor {
 
 	case Source(n:Int)	=> { h = n; source = true }
 
-	case H => {
-		sender ! Height(h)
-	}
+    // New Method calls
 
-	case PreflowPush => {
-		if (e == 0 || sink || source){
-			control ! IsDone
-		}else{
-			counter = 0
-			for (neigh <- edge){
-				other(neigh, self) ! H
+    case InitializeFlow => {
+        //Push maximum to all edges
+        for (ed <- edge){
+            other(ed, self) ! Push(h, ed.c, ed)
+        }
+    }
+    
+    case Push(h: Int, pushVal: Int, ed: Edge) => { //push is any value
+        if (isDone){
+            control ! NoLongerDone
+			isDone = false
+        }
+        if (this.h>=h){
+            sender ! NACKPush
+            if (buffer.isEmpty && e==0){
+                control ! Done
+				isDone = true
+            }
+        }
+        else{
+            sender ! ACKPush
+            ed.f += pushVal
+            e += pushVal
+            self ! CheckFlow
+        }
+    }
+
+    case CheckFlow => {
+        if (e==0 || sink || source){
+			println(id+"e=0 and buffer="+buffer)
+            if(buffer.isEmpty){
+				control ! Done
+				isDone = true
 			}
+        } else {
+        for (ed <- edge){
+            other(ed, self) ! H //Ask everyone for 
+        }
 		}
-	}
+    }
+    case H => {
+        // we want to respond with our height
+        sender ! Height(h)
+    }
+    
+    case Height(h: Int) => {
+        if (this.h==h+1){
+            var target:Edge = null
+            var d:Int = 0
+			for (ed <- edge){
+				if (ed.v == sender) {
+                    target = ed
+                    d = min(e,ed.c-ed.f)
+                    }
+				if (ed.u == sender) {
+                    target = ed
+                    d = min(e,ed.c+ed.f)
+                    }
+			}
+            if (target != null){
+                addToBuffer(sender, d) //this will add this to the buffer
+                sender ! Push(this.h, d, target)
 
-	case Height(h:Int) => {
-		if (h<this.h){
-			var target:Edge = null
-			for (e <- edge){
-				if (e.v == sender) target = e
-				if (e.u == sender) target = e
+            } else {
+				print("Target is null")
 			}
-			if (target == null){} 
-			else{
-				val d = push(target, sender) // Edge, Recieving Node
-				if (d==0){
-					counter+=1
-				}
-				self ! PreflowPush
-			}
-			
-		} else {
+
+        } else {
 			counter+=1
-			if (counter >= edge.length){
-				relabel
-				self ! PreflowPush
+			if(counter == edge.size){
+            relabel
+			counter = 0
 			}
+        }
+		if (e>0){
+			self ! CheckFlow
 		}
-	}
+		
+    }
+    case ACKPush => {
+        buffer.remove(sender)
+        if (buffer.isEmpty && e == 0){
+            isDone = true
+            control ! Done
+        }
+        else if (buffer.isEmpty && e>0){
+			self ! CheckFlow
+		}
 
-	case PushMax => {
-		for (e <- edge){
-			e.setfMax
-			other(e, self) ! Increase(e.f)
-		}
-	}
-	case AreYouDone(counter: Int) => {
-		if(source || sink || e == 0){
-			sender ! AmDone(counter, true)
-		} else {
-			sender ! AmDone(counter, false)
-		}
-	}
+    }
+    case NACKPush => {
+        e+=buffer(sender)
+        buffer.remove(sender)
+    }
 
-	case Increase(f:Int) => {
-		this.e = this.e + f
-		self ! PreflowPush
-	}
+
+
+
+
 
 	case _		=> {
 		println("" + index + " received an unknown message" + _) }
@@ -191,7 +217,7 @@ class Preflow extends Actor
 	var	edge:Array[Edge]	= null	/* edges in the graph.						*/
 	var	node:Array[ActorRef]	= null	/* vertices in the graph.					*/
 	var	ret:ActorRef 		= null	/* Actor to send result to.					*/
-	var unfinishedNodes:Set[ActorRef] = Set()
+	var unfinishedNodes:Int = 0
 	def receive = {
 
 	case node:Array[ActorRef]	=> {
@@ -199,6 +225,7 @@ class Preflow extends Actor
 		n = node.size
 		s = 0
 		t = n-1
+        unfinishedNodes = n
 		for (u <- node)
 			u ! Control(self)
 	}
@@ -206,6 +233,7 @@ class Preflow extends Actor
 	case edge:Array[Edge] => this.edge = edge
 
 	case Flow(f:Int) => {
+		for (nd <- node) nd ! Print
 		ret ! f			/* somebody (hopefully the sink) told us its current excess preflow. */
 	}
 
@@ -213,33 +241,21 @@ class Preflow extends Actor
 		ret = sender
 		node(s) ! Source(n)
 		node(t) ! Sink
-		node(s) ! PushMax
+		node(s) ! InitializeFlow
 
 	}
-	case IsAlive => {
-		counter+=1
-	}
 
-	case IsDone => {
-		unfinishedNodes = Set()
-		counter += 1
-		for (nd <- node){
-			nd ! AreYouDone(counter)
-			unfinishedNodes+=nd
-		}
-	}
-	case AmDone(counter: Int, done: Boolean) => {
-		if(done && counter == this.counter){
-			unfinishedNodes-=sender
-		}
-		if(unfinishedNodes.isEmpty){
-			self ! Complete(counter)
-		}
-	}
+    case Done => {
+        unfinishedNodes-=1
+		sender ! Print
+        if (unfinishedNodes == 0){
+            node(t) ! Excess
+        }
+    }
+    case NoLongerDone => {
+        unfinishedNodes+=1
+    }
 
-	case Complete(counter:Int) => {
-		if (counter == this.counter) node(t) ! Excess
-	}
 	}
 }
 
