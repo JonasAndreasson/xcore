@@ -75,14 +75,12 @@ class Node(val index: Int) extends Actor {
 	}
 
     def addToBuffer(key: ActorRef, value: Int) : Boolean = {
-		if(debug) println(id+"Adding"+value+"to buffer, e = "+e)
 		if (buffer.contains(key)){
 			if(debug) println(id+" alread has"+key)
 			return false
 		}
         e -= value
         buffer += (key -> value)
-		if(debug) println(id+"Added	"+value+"to buffer, e = "+e)
 		return true
     }
 
@@ -138,7 +136,6 @@ class Node(val index: Int) extends Actor {
     case CheckFlow => {
 		counter = 0
         if (e==0 || sink || source){
-			if(debug) println(id+"e="+e+" and buffer="+buffer)
             if(buffer.isEmpty && !isDone){
 				control ! Done
 				isDone = true
@@ -172,7 +169,6 @@ class Node(val index: Int) extends Actor {
                     d = min(e,ed.c+ed.f)
                     }
 			}
-			if (debug) println("d="+d+" h="+h+" this.h="+this.h)
             if (target != null && d != 0){
                 val b = addToBuffer(sender, d) //this will add this to the buffer
                 if (b) sender ! Push(this.h, d, target)
@@ -271,13 +267,11 @@ class Preflow extends Actor
 
     case Done => {
         unfinishedNodes-=1
-		sender ! PrintFinished
         if (unfinishedNodes == 0){
             node(t) ! Excess
         }
     }
     case NoLongerDone => {
-		sender ! PrintNoLongerFinished
         unfinishedNodes+=1
     }
 
