@@ -4,3 +4,4 @@ java:
 	javac sequential.java
 	time sh check-solution.sh java Preflow
 	@echo PASS all tests
+	
