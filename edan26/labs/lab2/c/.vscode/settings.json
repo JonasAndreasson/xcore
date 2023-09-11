@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "llist.h": "c",
+        "preflow.h": "c",
+        "node.h": "c"
+    }
+}
