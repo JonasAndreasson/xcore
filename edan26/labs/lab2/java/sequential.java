@@ -123,9 +123,11 @@ class Graph {
 
 class PreflowPush extends Thread{
 	Graph g;
+	int nodes_processed;
 
 	PreflowPush(Graph g){
 		this.g = g;
+		nodes_processed = 0;
 	}
 
 	public void run()
@@ -190,6 +192,7 @@ class PreflowPush extends Thread{
 					System.out.println(u.h);
 					g.relabel(u);
 				}
+			nodes_processed++;
 		}
       
       if(amWorking){
@@ -198,7 +201,8 @@ class PreflowPush extends Thread{
 	  }
 
     }
-		System.out.println("job done ");
+		System.out.println("Job done! Processed "+ nodes_processed + "node(s)");
+		
 	}
 
 }
@@ -236,7 +240,7 @@ class Edge {
 class Preflow {
 	public static void main(String args[])
 	{
-		double	begin = System.currentTimeMillis();
+		
 		Scanner s = new Scanner(System.in);
 		int	n;
 		int	m;
@@ -268,6 +272,7 @@ class Preflow {
 		}
 
 		g = new Graph(node, edge, threads);
+		double	begin = System.currentTimeMillis();
 		f = g.preflow(0, n-1);
 		double	end = System.currentTimeMillis();
 		System.out.println("t = " + (end - begin) / 1000.0 + " s");
