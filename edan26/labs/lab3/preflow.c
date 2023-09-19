@@ -185,7 +185,7 @@ static graph_t* new_graph(FILE* in, int n, int m)
 	g->t = &g->v[n-1];
 	g->excess = NULL;
 	g->buffer = xmalloc(sizeof(atomic_int));
-	atomic_init(g->buffer,0);
+	atomic_init(g->buffer,1);
 	
 
 	for (i = 0; i < m; i += 1) {
@@ -210,10 +210,15 @@ static void enter_excess(graph_t* g, node_t* v)
 	 * it first is simplest.
 	 *
 	 */
+	pthread_mutex_lock(g->excess_lock);
 	if (v != g->t && v != g->s) {
 		v->next = g->excess;
 		g->excess = v;
+		printf("%d is a normal node\n",id(g,v));
+	}else{
+		printf("%d is sink or source\n",id(g,v));
 	}
+	pthread_mutex_unlock(g->excess_lock);
 }
 
 static node_t* leave_excess(graph_t* g)
@@ -257,23 +262,24 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e)
 	assert(d >= 0);
 	assert(u->e >= 0);
 	assert(abs(e->f) <= e->c);
-
+	printf("%d:%d\n",id(g,u),u->e);
 	if (u->e > 0) {
 
 		/* still some remaining so let u push more. */
-
+		printf("%d Entering Excess\n",id(g,u));
 		enter_excess(g, u);
 	}
-
+	printf("%d:%d\n",id(g,v),v->e);
 	if (v->e == d) {
 
 		/* since v has d excess now it had zero before and
 		 * can now push.
 		 *
 		 */
-
+		printf("%d Entering Excess\n",id(g,v));
 		enter_excess(g, v);
 	}
+	
 }
 
 static void relabel(graph_t* g, node_t* u)
@@ -303,17 +309,11 @@ void* preflow_push(void* arg){
 	list_t* p;
 	edge_t* e;
 	bool am_working = true;
-	atomic_fetch_add(g->buffer, 1);
 
-	while(atomic_load(g->buffer)!=0){
+	while(1){
 		while ((u = leave_excess(g)) != NULL) {
 
 			/* u is any node with excess preflow. */
-			if(!am_working){
-				am_working = true;
-				atomic_fetch_add(g->buffer, 1);
-			}
-
 
 			pr("selected u = %d with ", id(g, u));
 			pr("h = %d and e = %d\n", u->h, u->e);
@@ -344,14 +344,12 @@ void* preflow_push(void* arg){
 			pthread_barrier_wait(g->barrier); //Wait for Phase 1 To complete
 			done_process+=1;
 			pthread_barrier_wait(g->barrier); //Wait for Phase 2 To complete
+			if(atomic_load(g->buffer)==0)break;
 		}
 		if (u==NULL){ //basically while else
 			pthread_barrier_wait(g->barrier); //Wait for Phase 1 To complete
-			if(am_working){
-			atomic_fetch_sub(g->buffer, 1);
-			am_working = false;
-			}
 			pthread_barrier_wait(g->barrier); //Wait for Phase 2 To complete
+			if(atomic_load(g->buffer)==0)break;
 		}
 	}
 	printf("%d Completed %d tasks\n", index, done_process);
@@ -360,35 +358,32 @@ void* preflow_push(void* arg){
 void* control_flow(void* arg){
 	graph_t* g = (graph_t*) arg;
 	bool am_working = true;
-	atomic_fetch_add(g->buffer, 1);
-	while(atomic_load(g->buffer)!=0){
-		printf("Controller done with Phase 1\n");
+	int k;
+	while(1){
+		k = 0;
 		pthread_barrier_wait(g->barrier);//Wait for Phase 1 To complete
-		if(!am_working){
-				am_working = true;
-				atomic_fetch_add(g->buffer, 1);
-		}
 		for (int i = 0; i < 16; i+=1){
 			flow_t f = g->jobs[i];
-			
-			if (*f.done){
+			if (*f.done){	
+				k+=1;
 				continue;
 			}
 			if (f.v != NULL){
 				push(g,f.u, f.v,f.e);
+				*g->jobs[i].done = true;
 			} else {
 				relabel(g,f.u);
+				*g->jobs[i].done = true;
 			}
-			printf("%d had a job\n", i);
-			*g->jobs[i].done = true;
+			
 		}
-		printf("Controller done with Phase 2\n");
-		printf("Number of active threads: %d\n", atomic_load(g->buffer));
-		if(am_working){
+		printf("%d without new jobs\n",k);
+		printf("Excess is empty %d\n", g->excess==NULL);
+		if (k==16){
 			atomic_fetch_sub(g->buffer, 1);
-			am_working = false;
 		}
 		pthread_barrier_wait(g->barrier);//Wait for Phase 2 To complete
+		if(atomic_load(g->buffer)==0)break;
 	}
 }
 	
@@ -422,25 +417,17 @@ int preflow(graph_t* g)
 	
 	/* then loop until only s and/or t have excess preflow. */
 	int number_of_threads;
-	if (g->n>2) number_of_threads = 1+(g->n-3)/10;
+	/*if (g->n>2) number_of_threads = 1+(g->n-3)/10;
 	else number_of_threads = 1;
 	if (number_of_threads>16) number_of_threads = 16;
 	if (number_of_threads == 1) number_of_threads++;
+	*/
+	number_of_threads = 2;
 	pthread_barrier_init(g->barrier, NULL, number_of_threads);
-	for (int i = 0; i < 16; i+=1){
-		g->jobs[i].done = xmalloc(sizeof(bool));
-		g->jobs[i].e = xmalloc(sizeof(edge_t));
-		g->jobs[i].u = xmalloc(sizeof(node_t));
-		g->jobs[i].v = xmalloc(sizeof(node_t));
-	}
 	for (int i = 0; i < 16; i+=1){
 		bool temp = true;
 		flow_t f = {.u=NULL, .v=NULL, .e=NULL, .done=&temp};
 		g->jobs[i] = f;
-	}
-
-	for (int i = 0; i < 16; i+=1){
-		printf("%d is %d\n",i,*(g->jobs[i].done));
 	}
 
 	
@@ -474,41 +461,13 @@ static void free_graph(graph_t* g)
 			p = q;
 		}
 	}
-	fflush( stdout );
 	free(g->v);
-	//printf("v cleared\n");
-	fflush( stdout );
 	free(g->e);
-	//printf("e cleared\n");
-	fflush( stdout );
 	free(g->buffer);
-	//printf("buffer cleared\n");
-	fflush( stdout );
 	pthread_barrier_destroy(g->barrier);
-	//printf("barrier destroyed\n");
-	fflush( stdout );
 	free(g->barrier);
-	//printf("barrier cleared\n");
-	fflush( stdout );
-	/*for (i = 0; i<16; i+=1){
-		free(g->jobs[i].done);
-		printf("%d done cleared\n", i);
-		fflush( stdout );
-		printf("%d e == NULL: %d\n",i,(g->jobs[i].e==NULL));
-		free(g->jobs[i].e);
-		printf("%d e cleared\n", i);
-		fflush( stdout );
-		free(g->jobs[i].u);
-		printf("%d u cleared\n", i);
-		fflush( stdout );
-		free(g->jobs[i].v);
-		printf("%d v cleared\n", i);
-		fflush( stdout );
-	}*/
 	free(g->excess_lock);
 	free(g);
-	//printf("Graph cleared\n");
-	fflush( stdout );
 }
 
 int main(int argc, char* argv[])
