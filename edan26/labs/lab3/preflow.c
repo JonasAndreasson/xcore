@@ -46,7 +46,6 @@ struct flow_t{
 	node_t* u;
 	node_t* v;
 	edge_t* e;
-	bool* done;
 };
 
 struct graph_t {
@@ -59,7 +58,7 @@ struct graph_t {
 	node_t*		excess;	/* nodes with e > 0 except s,t.	*/
 	pthread_barrier_t* barrier;
 	pthread_mutex_t* excess_lock;
-	_Atomic int *buffer;
+	int buffer;
 	flow_t	jobs[16];
 };
 struct index_t{
@@ -184,8 +183,7 @@ static graph_t* new_graph(FILE* in, int n, int m)
 	g->s = &g->v[0];
 	g->t = &g->v[n-1];
 	g->excess = NULL;
-	g->buffer = xmalloc(sizeof(atomic_int));
-	atomic_init(g->buffer,1);
+	g->buffer = 0;
 	
 
 	for (i = 0; i < m; i += 1) {
@@ -214,9 +212,6 @@ static void enter_excess(graph_t* g, node_t* v)
 	if (v != g->t && v != g->s) {
 		v->next = g->excess;
 		g->excess = v;
-		printf("%d is a normal node\n",id(g,v));
-	}else{
-		printf("%d is sink or source\n",id(g,v));
 	}
 	pthread_mutex_unlock(g->excess_lock);
 }
@@ -262,21 +257,17 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e)
 	assert(d >= 0);
 	assert(u->e >= 0);
 	assert(abs(e->f) <= e->c);
-	printf("%d:%d\n",id(g,u),u->e);
 	if (u->e > 0) {
 
 		/* still some remaining so let u push more. */
-		printf("%d Entering Excess\n",id(g,u));
 		enter_excess(g, u);
 	}
-	printf("%d:%d\n",id(g,v),v->e);
 	if (v->e == d) {
 
 		/* since v has d excess now it had zero before and
 		 * can now push.
 		 *
 		 */
-		printf("%d Entering Excess\n",id(g,v));
 		enter_excess(g, v);
 	}
 	
@@ -339,17 +330,18 @@ void* preflow_push(void* arg){
 				}
 			}
 			bool temp = false;
-			flow_t f = {.u=u, .v=v, .e=e,.done=&temp};
+			flow_t f = {.u=u, .v=v, .e=e};
 			g->jobs[index]=f;
 			pthread_barrier_wait(g->barrier); //Wait for Phase 1 To complete
 			done_process+=1;
 			pthread_barrier_wait(g->barrier); //Wait for Phase 2 To complete
-			if(atomic_load(g->buffer)==0)break;
+			if(g->buffer)break;
 		}
+		if(g->buffer)break;
 		if (u==NULL){ //basically while else
 			pthread_barrier_wait(g->barrier); //Wait for Phase 1 To complete
 			pthread_barrier_wait(g->barrier); //Wait for Phase 2 To complete
-			if(atomic_load(g->buffer)==0)break;
+			if(g->buffer)break;
 		}
 	}
 	printf("%d Completed %d tasks\n", index, done_process);
@@ -364,26 +356,22 @@ void* control_flow(void* arg){
 		pthread_barrier_wait(g->barrier);//Wait for Phase 1 To complete
 		for (int i = 0; i < 16; i+=1){
 			flow_t f = g->jobs[i];
-			if (*f.done){	
+			if (f.u==NULL){	
 				k+=1;
 				continue;
 			}
 			if (f.v != NULL){
 				push(g,f.u, f.v,f.e);
-				*g->jobs[i].done = true;
 			} else {
 				relabel(g,f.u);
-				*g->jobs[i].done = true;
 			}
-			
+			g->jobs[i].u=NULL;
 		}
-		printf("%d without new jobs\n",k);
-		printf("Excess is empty %d\n", g->excess==NULL);
 		if (k==16){
-			atomic_fetch_sub(g->buffer, 1);
+			g->buffer=1;
 		}
 		pthread_barrier_wait(g->barrier);//Wait for Phase 2 To complete
-		if(atomic_load(g->buffer)==0)break;
+		if(g->buffer)break;
 	}
 }
 	
@@ -417,24 +405,26 @@ int preflow(graph_t* g)
 	
 	/* then loop until only s and/or t have excess preflow. */
 	int number_of_threads;
-	/*if (g->n>2) number_of_threads = 1+(g->n-3)/10;
+	if (g->n>2) number_of_threads = 1+(g->n-3)/10;
 	else number_of_threads = 1;
 	if (number_of_threads>16) number_of_threads = 16;
 	if (number_of_threads == 1) number_of_threads++;
-	*/
-	number_of_threads = 2;
+	
+	//number_of_threads = 3;
 	pthread_barrier_init(g->barrier, NULL, number_of_threads);
 	for (int i = 0; i < 16; i+=1){
-		bool temp = true;
-		flow_t f = {.u=NULL, .v=NULL, .e=NULL, .done=&temp};
+		flow_t f = {.u=NULL, .v=NULL, .e=NULL};
 		g->jobs[i] = f;
 	}
 
 	
 	pthread_t thread_id[number_of_threads];
+	index_t capsulate_g[number_of_threads-1];
 	for (int i = 0; i < number_of_threads-1; i+=1){
-		index_t capsulate_g = {.g=g, .index=i};
-    	pthread_create(&(thread_id[i]), NULL, preflow_push, &capsulate_g);
+		const int j = 0+i;
+		index_t item = {.g=g, .index=j};
+		capsulate_g[i] = item;
+    	pthread_create(&(thread_id[i]), NULL, preflow_push, &capsulate_g[i]);
 	}
 	pthread_create(&(thread_id[number_of_threads-1]), NULL, control_flow, g);
 	
@@ -463,7 +453,6 @@ static void free_graph(graph_t* g)
 	}
 	free(g->v);
 	free(g->e);
-	free(g->buffer);
 	pthread_barrier_destroy(g->barrier);
 	free(g->barrier);
 	free(g->excess_lock);
