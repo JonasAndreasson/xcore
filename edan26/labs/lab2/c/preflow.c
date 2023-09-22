@@ -68,6 +68,7 @@ typedef struct graph_t	graph_t;
 typedef struct node_t	node_t;
 typedef struct edge_t	edge_t;
 typedef struct list_t	list_t;
+typedef struct xedge_t  xedge_t;
 
 struct list_t {
 	edge_t*		edge;
@@ -88,6 +89,12 @@ struct edge_t {
 	node_t*		v;	/* the other. 			*/
 	int		f;	/* flow > 0 if from u to v.	*/
 	int		c;	/* capacity.			*/
+};
+
+struct xedge_t {  
+        int             u;      /* one of the two nodes.        */
+        int             v;      /* the other.                   */
+        int             c;      /* capacity.                    */
 };
 
 struct graph_t {
@@ -525,7 +532,7 @@ void* preflow_push(void* arg){
 	printf("%d Completed tasks\n", done_process);
 }
 	
-int preflow(graph_t* g)
+int preflow_main(graph_t* g)
 {
 	node_t*		s;
 	node_t*		u;
@@ -593,36 +600,94 @@ static void free_graph(graph_t* g)
 	free(g);
 }
 
-int main(int argc, char* argv[])
+
+static graph_t* forsete_graph(int n, int m,int s, int t,xedge_t* e_list)
 {
-	FILE*		in;	/* input file set to stdin	*/
-	graph_t*	g;	/* undirected graph. 		*/
-	int		f;	/* output from preflow.		*/
-	int		n;	/* number of nodes.		*/
-	int		m;	/* number of edges.		*/
+	graph_t*	g;
+	node_t*		u;
+	node_t*		v;
+	int		i;
+	int		a;
+	int		b;
+	int		c;
+	
+	g = xmalloc(sizeof(graph_t));
 
-	progname = argv[0];	/* name is a string in argv[0]. */
-	//init_timebase();
-	in = stdin;		/* same as System.in in Java.	*/
+	g->n = n;
+	g->m = m;
+	g->excess_lock = xmalloc(sizeof(pthread_mutex_t));
+	pthread_mutex_init(g->excess_lock, NULL);
+	g->v = xcalloc(n, sizeof(node_t));
+	g->e = xcalloc(m, sizeof(edge_t));
 
-	n = next_int();
-	m = next_int();
+	g->s = &g->v[s];
+	g->t = &g->v[t];
+	g->excess = NULL;
+	g->buffer = xmalloc(sizeof(atomic_int));
+	atomic_init(g->buffer,0);
+	for (i = 0; i < n; i+=1){
+		g->v[i].lock = xmalloc(sizeof(pthread_mutex_t));
+		pthread_mutex_init(g->v[i].lock, NULL);
+	}
 
-	/* skip C and P from the 6railwayplanning lab in EDAF05 */
-	next_int();
-	next_int();
+	for (i = 0; i < m; i += 1) {
+		a = e_list[i].u;
+		b = e_list[i].v;
+		c = e_list[i].c;
+		u = &g->v[a];
+		u->i = a;
+		v = &g->v[b];
+		v->i = b;
+		connect(u, v, c, g->e+i);
+	}
 
-	g = new_graph(in, n, m);
+	return g;
+}
 
-	fclose(in);
+int preflow(int n, int m, int s, int t, xedge_t* e){
+	graph_t* g;
+	int f;
+	g = forsete_graph(n,m,s,t,e);
 
-	//double	begin = timebase_sec();
-	f = preflow(g);
-	//double end = timebase_sec();
-	//printf("t = %lf s\n", end-begin);
-	printf("f = %d\n", f);
+	f = preflow_main(g);
 
 	free_graph(g);
 
-	return 0;
+	return f;
+	
 }
+
+/*
+int main(int argc, char* argv[]) {
+ 	FILE*		in;	// input file set to stdin	
+ 	graph_t*	g;	// undirected graph. 		
+ 	int		f;	// output from preflow.		
+ 	int		n;	// number of nodes.	
+ 	int		m;	// number of edges.		
+
+ 	progname = argv[0];	// name is a string in argv[0].
+ 	//init_timebase();
+ 	in = stdin;		// same as System.in in Java.	
+
+	n = next_int();
+ 	m = next_int();
+
+ 	// skip C and P from the 6railwayplanning lab in EDAF05
+ 	next_int();
+ 	next_int();
+
+ 	g = new_graph(in, n, m);
+
+ 	fclose(in);
+
+ 	//double	begin = timebase_sec();
+ 	f = preflow_main(g);
+ 	//double end = timebase_sec();
+ 	//printf("t = %lf s\n", end-begin);
+ 	printf("f = %d\n", f);
+
+ 	free_graph(g);
+
+ 	return 0;
+}
+*/

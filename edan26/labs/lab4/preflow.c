@@ -23,17 +23,10 @@ typedef struct edge_t	edge_t;
 typedef struct list_t	list_t;
 typedef struct flow_t	flow_t;
 typedef struct index_t	index_t;
-typedef struct xedge_t  xedge_t;
 
 struct list_t {
 	edge_t*		edge;
 	list_t*		next;
-};
-
-struct xedge_t {  
-        int             u;      /* one of the two nodes.        */
-        int             v;      /* the other.                   */
-        int             c;      /* capacity.                    */
 };
 
 struct node_t {
@@ -382,7 +375,7 @@ void* control_flow(void* arg){
 	}
 }
 	
-int preflow_main(graph_t* g)
+int preflow(graph_t* g)
 {
 	node_t*		s;
 	node_t*		u;
@@ -465,78 +458,23 @@ static void free_graph(graph_t* g)
 	free(g->excess_lock);
 	free(g);
 }
-static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* e)
-{
-	graph_t*	g;
-	node_t*		u;
-	node_t*		v;
-	int		i;
-	int		a;
-	int		b;
-	int		c;
-	
-	g = xmalloc(sizeof(graph_t));
 
-	g->n = n;
-	g->m = m;
-	g->excess_lock = xmalloc(sizeof(pthread_mutex_t));
-	pthread_mutex_init(g->excess_lock, NULL);
-	g->barrier = xmalloc(sizeof(pthread_barrier_t));
-	g->v = xcalloc(n, sizeof(node_t));
-	g->e = xcalloc(m, sizeof(edge_t));
-	g->s = &g->v[s];
-	g->t = &g->v[t];
-	g->excess = NULL;
-	g->buffer = 0;
-	
-
-	for (i = 0; i < m; i += 1) {
-		a = e->u;
-		b = e->v;
-		c = e->c;
-		u = &g->v[a];
-		v = &g->v[b];
-		connect(u, v, c, g->e+i);
-	}
-
-	return g;
-}
-
-
-
-
-
-int preflow(int n, int m, int s, int t, xedge_t* e){
-	graph_t* g;
-	int f;
-	g = forsete_graph(n,m,s,t,e);
-
-	f = preflow_main(g);
-
-	free_graph(g);
-
-	return f;
-	
-}
-
-
-/*
 int main(int argc, char* argv[])
 {
-	FILE*		in;	// input file set to stdin	
-	graph_t*	g;	// undirected graph. 		
-	int		f;	// output from preflow.		
-	int		n;	// number of nodes.		
-	int		m;	// number of edges.		
+	FILE*		in;	/* input file set to stdin	*/
+	graph_t*	g;	/* undirected graph. 		*/
+	int		f;	/* output from preflow.		*/
+	int		n;	/* number of nodes.		*/
+	int		m;	/* number of edges.		*/
 
-	progname = argv[0];	// name is a string in argv[0]. 
+	progname = argv[0];	/* name is a string in argv[0]. */
 	//init_timebase();
-	in = stdin;		// same as System.in in Java.
+	in = stdin;		/* same as System.in in Java.	*/
 
 	n = next_int();
 	m = next_int();
 
-	// skip C and P from the 6railwayplanning lab in EDAF05 
+	/* skip C and P from the 6railwayplanning lab in EDAF05 */
 	next_int();
 	next_int();
 
@@ -545,7 +483,7 @@ int main(int argc, char* argv[])
 	fclose(in);
 
 	//double	begin = timebase_sec();
-	f = preflow_main(g);
+	f = preflow(g);
 	//double end = timebase_sec();
 	//printf("t = %lf s\n", end-begin);
 	printf("f = %d\n", f);
@@ -554,4 +492,3 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-*/
