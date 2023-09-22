@@ -465,7 +465,7 @@ static void free_graph(graph_t* g)
 	free(g->excess_lock);
 	free(g);
 }
-static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* e)
+static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
 {
 	graph_t*	g;
 	node_t*		u;
@@ -484,6 +484,7 @@ static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* e)
 	g->barrier = xmalloc(sizeof(pthread_barrier_t));
 	g->v = xcalloc(n, sizeof(node_t));
 	g->e = xcalloc(m, sizeof(edge_t));
+
 	g->s = &g->v[s];
 	g->t = &g->v[t];
 	g->excess = NULL;
@@ -491,9 +492,9 @@ static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* e)
 	
 
 	for (i = 0; i < m; i += 1) {
-		a = e->u;
-		b = e->v;
-		c = e->c;
+		a = edge_list[i].u;
+		b = edge_list[i].v;
+		c = edge_list[i].c;
 		u = &g->v[a];
 		v = &g->v[b];
 		connect(u, v, c, g->e+i);
@@ -510,7 +511,7 @@ int preflow(int n, int m, int s, int t, xedge_t* e){
 	graph_t* g;
 	int f;
 	g = forsete_graph(n,m,s,t,e);
-
+	
 	f = preflow_main(g);
 
 	free_graph(g);
@@ -518,9 +519,27 @@ int preflow(int n, int m, int s, int t, xedge_t* e){
 	return f;
 	
 }
-
-
 /*
+int main(int argc, char* argv[]){ //Forsete Test
+	xedge_t* e = xcalloc(2, sizeof(xedge_t));
+	e[0].u = 0;
+	e[0].v = 1;
+	e[0].c = 10;
+	e[1].u = 1;
+	e[1].v = 2;
+	e[1].c = 2;
+
+	int f = preflow(3,2,0,2,e);
+
+	printf("f = %d\n", f);
+
+	free(e);
+
+	return 0;
+}
+
+
+
 int main(int argc, char* argv[])
 {
 	FILE*		in;	// input file set to stdin	
