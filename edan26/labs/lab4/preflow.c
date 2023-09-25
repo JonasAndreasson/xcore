@@ -34,6 +34,7 @@ struct node_t {
 	int		e;	/* excess flow.			*/
 	list_t*		edge;	/* adjacency list.		*/
 	node_t*		next;	/* with excess preflow.		*/
+	atomic_int inc;
 };
 
 struct edge_t {
@@ -45,7 +46,6 @@ struct edge_t {
 struct flow_t{
 	node_t* u;
 	node_t* v;
-	edge_t* e;
 };
 
 struct graph_t {
@@ -272,6 +272,41 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e)
 	}
 	
 }
+static void atomic_push(graph_t* g, node_t* u, node_t* v)
+{
+	int		d;	/* remaining capacity of the edge. */
+	if (u->inc != 0){
+		u->e += u->inc;
+		u->inc = 0;
+	}
+	if (v->inc == 0){
+		if (u->e > 0) {
+		enter_excess(g, u);
+		}
+		return;
+	}
+	v->e += v->inc;
+	/* the following are always true. */
+	assert(u->e >= 0);
+	if (u->e > 0) {
+
+		/* still some remaining so let u push more. */
+		enter_excess(g, u);
+	}
+	if (v->e == v->inc) {
+
+		/* since v has d excess now it had zero before and
+		 * can now push.
+		 *
+		 */
+		enter_excess(g, v);
+	}
+	v->inc = 0;
+}
+
+
+
+
 
 static void relabel(graph_t* g, node_t* u)
 {
@@ -308,7 +343,6 @@ void* preflow_push(void* arg){
 
 			pr("selected u = %d with ", id(g, u));
 			pr("h = %d and e = %d\n", u->h, u->e);
-
 			v = NULL;
 			p = u->edge;
 			while (p != NULL) {
@@ -324,13 +358,23 @@ void* preflow_push(void* arg){
 					}
 
 				if (u->h > v->h && b * e->f < e->c){
+					int d;
+					if (u == e->u) {
+						d = MIN(u->e, e->c - e->f);
+						e->f += d;
+					} else {
+						d = MIN(u->e, e->c + e->f);
+						e->f -= d;
+					}
+					u->inc -= d;
+					v->inc += d;
 					break;
 				}else{
 					v = NULL;
 				}
 			}
 			bool temp = false;
-			flow_t f = {.u=u, .v=v, .e=e};
+			flow_t f = {.u=u, .v=v}; //contains inc
 			g->jobs[index]=f;
 			pthread_barrier_wait(g->barrier); //Wait for Phase 1 To complete
 			done_process+=1;
@@ -360,8 +404,9 @@ void* control_flow(void* arg){
 				k+=1;
 				continue;
 			}
+			
 			if (f.v != NULL){
-				push(g,f.u, f.v,f.e);
+				atomic_push(g,f.u, f.v);
 			} else {
 				relabel(g,f.u);
 			}
@@ -413,7 +458,7 @@ int preflow(graph_t* g)
 	//number_of_threads = 3;
 	pthread_barrier_init(g->barrier, NULL, number_of_threads);
 	for (int i = 0; i < 16; i+=1){
-		flow_t f = {.u=NULL, .v=NULL, .e=NULL};
+		flow_t f = {.u=NULL, .v=NULL};
 		g->jobs[i] = f;
 	}
 
