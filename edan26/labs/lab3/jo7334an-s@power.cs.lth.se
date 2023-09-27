@@ -24,19 +24,25 @@ typedef struct edge_t	edge_t;
 typedef struct list_t	list_t;
 typedef struct flow_t	flow_t;
 typedef struct index_t	index_t;
+typedef struct xedge_t  xedge_t;
 
 struct list_t {
 	edge_t*		edge;
 	list_t*		next;
 };
 
+struct xedge_t {  
+        int             u;      /* one of the two nodes.        */
+        int             v;      /* the other.                   */
+        int             c;      /* capacity.                    */
+};
+
 struct node_t {
-	int 	i;
 	int		h;	/* height.			*/
 	int		e;	/* excess flow.			*/
+	int 	i;
 	list_t*		edge;	/* adjacency list.		*/
 	node_t*		next;	/* with excess preflow.		*/
-	atomic_int inc;
 };
 
 struct edge_t {
@@ -48,6 +54,7 @@ struct edge_t {
 struct flow_t{
 	node_t* u;
 	node_t* v;
+	edge_t* e;
 };
 
 struct graph_t {
@@ -57,7 +64,6 @@ struct graph_t {
 	edge_t*		e;	/* array of m edges.		*/
 	node_t*		s;	/* source.			*/
 	node_t*		t;	/* sink.			*/
-	//node_t*		excess;	/* nodes with e > 0 except s,t.	*/
 	pthread_barrier_t* barrier;
 	int buffer;
 	int number_of_threads;
@@ -194,9 +200,9 @@ static graph_t* new_graph(FILE* in, int n, int m)
 		b = next_int();
 		c = next_int();
 		u = &g->v[a];
-		u->i = a;
+		u-> i = a;
 		v = &g->v[b];
-		v->i = b;
+		v -> i = b;
 		connect(u, v, c, g->e+i);
 	}
 
@@ -274,41 +280,6 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e)
 	}
 	
 }
-static void atomic_push(graph_t* g, node_t* u, node_t* v)
-{
-	int		d;	/* remaining capacity of the edge. */
-	if (u->inc != 0){
-		u->e += u->inc;
-		u->inc = 0;
-	}
-	if (v->inc == 0){
-		if (u->e > 0) {
-		enter_excess(g, u);
-		}
-		return;
-	}
-	v->e += v->inc;
-	/* the following are always true. */
-	assert(u->e >= 0);
-	if (u->e > 0) {
-
-		/* still some remaining so let u push more. */
-		enter_excess(g, u);
-	}
-	if (v->e == v->inc) {
-
-		/* since v has d excess now it had zero before and
-		 * can now push.
-		 *
-		 */
-		enter_excess(g, v);
-	}
-	v->inc = 0;
-}
-
-
-
-
 
 static void relabel(graph_t* g, node_t* u)
 {
@@ -345,6 +316,7 @@ void* preflow_push(void* arg){
 
 			pr("selected u = %d with ", id(g, u));
 			pr("h = %d and e = %d\n", u->h, u->e);
+
 			v = NULL;
 			p = u->edge;
 			while (p != NULL) {
@@ -360,23 +332,13 @@ void* preflow_push(void* arg){
 					}
 
 				if (u->h > v->h && b * e->f < e->c){
-					int d;
-					if (u == e->u) {
-						d = MIN(u->e, e->c - e->f);
-						e->f += d;
-					} else {
-						d = MIN(u->e, e->c + e->f);
-						e->f -= d;
-					}
-					u->inc -= d;
-					v->inc += d;
 					break;
 				}else{
 					v = NULL;
 				}
 			}
 			bool temp = false;
-			flow_t f = {.u=u, .v=v}; //contains inc
+			flow_t f = {.u=u, .v=v, .e=e};
 			g->jobs[index]=f;
 			pthread_barrier_wait(g->barrier); //Wait for Phase 1 To complete
 			done_process+=1;
@@ -390,7 +352,7 @@ void* preflow_push(void* arg){
 			if(g->buffer)break;
 		}
 	}
-	pr("%d Completed %d tasks\n", index, done_process);
+	printf("%d Completed %d tasks\n", index, done_process);
 }
 
 void* control_flow(void* arg){
@@ -406,9 +368,8 @@ void* control_flow(void* arg){
 				k+=1;
 				continue;
 			}
-			
 			if (f.v != NULL){
-				atomic_push(g,f.u, f.v);
+				push(g,f.u, f.v,f.e);
 			} else {
 				relabel(g,f.u);
 			}
@@ -422,7 +383,7 @@ void* control_flow(void* arg){
 	}
 }
 	
-int preflow(graph_t* g)
+int preflow_main(graph_t* g)
 {
 	node_t*		s;
 	node_t*		u;
@@ -451,7 +412,6 @@ int preflow(graph_t* g)
 	
 	
 	/* then loop until only s and/or t have excess preflow. */
-	
 	if (g->n>2) g->number_of_threads = 1+(g->n-3)/10;
 	else g->number_of_threads = 1;
 	if (g->number_of_threads>THREAD_CAP) g->number_of_threads = THREAD_CAP;
@@ -460,7 +420,7 @@ int preflow(graph_t* g)
 	//g->number_of_threads = 3;
 	pthread_barrier_init(g->barrier, NULL, g->number_of_threads);
 	for (int i = 0; i < THREAD_CAP; i+=1){
-		flow_t f = {.u=NULL, .v=NULL};
+		flow_t f = {.u=NULL, .v=NULL, .e=NULL};
 		g->jobs[i] = f;
 	}
 
@@ -479,7 +439,7 @@ int preflow(graph_t* g)
 	for (int i = 0; i < g->number_of_threads; i+=1){
 		void *ret;
     	pthread_join(thread_id[i], ret);
-		pr("Thread %d is done!\n", i);
+		printf("Thread %d is done!\n", i);
 	}
 	return g->t->e;
 }
@@ -504,23 +464,96 @@ static void free_graph(graph_t* g)
 	free(g->barrier);
 	free(g);
 }
+static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
+{
+	graph_t*	g;
+	node_t*		u;
+	node_t*		v;
+	int		i;
+	int		a;
+	int		b;
+	int		c;
+	
+	g = xmalloc(sizeof(graph_t));
+
+	g->n = n;
+	g->m = m;
+	g->barrier = xmalloc(sizeof(pthread_barrier_t));
+	g->v = xcalloc(n, sizeof(node_t));
+	g->e = xcalloc(m, sizeof(edge_t));
+	for (i = 0; i < THREAD_CAP; i+=1){
+		g->excess[i] = NULL;
+	}
+	g->s = &g->v[s];
+	g->t = &g->v[t];
+	g->buffer = 0;
+	
+
+	for (i = 0; i < m; i += 1) {
+		a = edge_list[i].u;
+		b = edge_list[i].v;
+		c = edge_list[i].c;
+		u = &g->v[a];
+		v = &g->v[b];
+		connect(u, v, c, g->e+i);
+	}
+
+	return g;
+}
+
+
+
+
+
+int preflow(int n, int m, int s, int t, xedge_t* e){
+	graph_t* g;
+	int f;
+	g = forsete_graph(n,m,s,t,e);
+	
+	f = preflow_main(g);
+
+	free_graph(g);
+
+	return f;
+	
+}
+/*
+int main(int argc, char* argv[]){ //Forsete Test
+	xedge_t* e = xcalloc(2, sizeof(xedge_t));
+	e[0].u = 0;
+	e[0].v = 1;
+	e[0].c = 10;
+	e[1].u = 1;
+	e[1].v = 2;
+	e[1].c = 2;
+
+	int f = preflow(3,2,0,2,e);
+
+	printf("f = %d\n", f);
+
+	free(e);
+
+	return 0;
+}
+
+*/
 
 int main(int argc, char* argv[])
 {
-	FILE*		in;	/* input file set to stdin	*/
-	graph_t*	g;	/* undirected graph. 		*/
-	int		f;	/* output from preflow.		*/
-	int		n;	/* number of nodes.		*/
-	int		m;	/* number of edges.		*/
+	FILE*		in;	// input file set to stdin	
+	graph_t*	g;	// undirected graph. 		
+	int		f;	// output from preflow.		
+	int		n;	// number of nodes.		
+	int		m;	// number of edges.		
 
-	progname = argv[0];	/* name is a string in argv[0]. */
+	progname = argv[0];	// name is a string in argv[0]. 
 	//init_timebase();
-	in = stdin;		/* same as System.in in Java.	*/
+	in = stdin;		// same as System.in in Java.
 
 	n = next_int();
 	m = next_int();
 
-	/* skip C and P from the 6railwayplanning lab in EDAF05 */
+	// skip C and P from the 6railwayplanning lab in EDAF05 
 	next_int();
 	next_int();
 
@@ -529,7 +562,7 @@ int main(int argc, char* argv[])
 	fclose(in);
 
 	//double	begin = timebase_sec();
-	f = preflow(g);
+	f = preflow_main(g);
 	//double end = timebase_sec();
 	//printf("t = %lf s\n", end-begin);
 	printf("f = %d\n", f);
@@ -538,3 +571,4 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
+

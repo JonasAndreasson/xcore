@@ -10,6 +10,7 @@
 //#include "timebase.h"
 #include "pthread_barrier.h"
 #define PRINT		0	/* enable/disable prints. */
+#define THREAD_CAP 16
 #if PRINT
 #define pr(...)		do { fprintf(stderr, __VA_ARGS__); } while (0)
 #else
@@ -39,6 +40,7 @@ struct xedge_t {
 struct node_t {
 	int		h;	/* height.			*/
 	int		e;	/* excess flow.			*/
+	int 	i;
 	list_t*		edge;	/* adjacency list.		*/
 	node_t*		next;	/* with excess preflow.		*/
 };
@@ -62,11 +64,11 @@ struct graph_t {
 	edge_t*		e;	/* array of m edges.		*/
 	node_t*		s;	/* source.			*/
 	node_t*		t;	/* sink.			*/
-	node_t*		excess;	/* nodes with e > 0 except s,t.	*/
 	pthread_barrier_t* barrier;
-	pthread_mutex_t* excess_lock;
 	int buffer;
-	flow_t	jobs[16];
+	int number_of_threads;
+	flow_t	jobs[THREAD_CAP];
+	node_t* excess[THREAD_CAP];
 };
 struct index_t{
 	graph_t* g;
@@ -182,14 +184,14 @@ static graph_t* new_graph(FILE* in, int n, int m)
 
 	g->n = n;
 	g->m = m;
-	g->excess_lock = xmalloc(sizeof(pthread_mutex_t));
-	pthread_mutex_init(g->excess_lock, NULL);
 	g->barrier = xmalloc(sizeof(pthread_barrier_t));
 	g->v = xcalloc(n, sizeof(node_t));
 	g->e = xcalloc(m, sizeof(edge_t));
 	g->s = &g->v[0];
 	g->t = &g->v[n-1];
-	g->excess = NULL;
+	for (i = 0; i < THREAD_CAP; i+=1){
+		g->excess[i] = NULL;
+	}
 	g->buffer = 0;
 	
 
@@ -198,7 +200,9 @@ static graph_t* new_graph(FILE* in, int n, int m)
 		b = next_int();
 		c = next_int();
 		u = &g->v[a];
+		u-> i = a;
 		v = &g->v[b];
+		v -> i = b;
 		connect(u, v, c, g->e+i);
 	}
 
@@ -215,15 +219,14 @@ static void enter_excess(graph_t* g, node_t* v)
 	 * it first is simplest.
 	 *
 	 */
-	pthread_mutex_lock(g->excess_lock);
+	int hash = v->i%(g->number_of_threads-1);
 	if (v != g->t && v != g->s) {
-		v->next = g->excess;
-		g->excess = v;
+		v->next = g->excess[hash];
+		g->excess[hash] = v;
 	}
-	pthread_mutex_unlock(g->excess_lock);
 }
 
-static node_t* leave_excess(graph_t* g)
+static node_t* leave_excess(graph_t* g, int index)
 {
 	node_t*		v;
 
@@ -231,11 +234,9 @@ static node_t* leave_excess(graph_t* g)
 	 * and for simplicity we always take the first.
 	 *
 	 */
-	pthread_mutex_lock(g->excess_lock);
-	v = g->excess;
+	v = g->excess[index];
 	if (v != NULL)
-		g->excess = v->next;
-	pthread_mutex_unlock(g->excess_lock);
+		g->excess[index] = v->next;
 	return v;
 }
 
@@ -309,7 +310,7 @@ void* preflow_push(void* arg){
 	bool am_working = true;
 
 	while(1){
-		while ((u = leave_excess(g)) != NULL) {
+		while ((u = leave_excess(g, index)) != NULL) {
 
 			/* u is any node with excess preflow. */
 
@@ -351,7 +352,7 @@ void* preflow_push(void* arg){
 			if(g->buffer)break;
 		}
 	}
-	printf("%d Completed %d tasks\n", index, done_process);
+	pr("%d Completed %d tasks\n", index, done_process);
 }
 
 void* control_flow(void* arg){
@@ -361,7 +362,7 @@ void* control_flow(void* arg){
 	while(1){
 		k = 0;
 		pthread_barrier_wait(g->barrier);//Wait for Phase 1 To complete
-		for (int i = 0; i < 16; i+=1){
+		for (int i = 0; i < THREAD_CAP; i+=1){
 			flow_t f = g->jobs[i];
 			if (f.u==NULL){	
 				k+=1;
@@ -374,7 +375,7 @@ void* control_flow(void* arg){
 			}
 			g->jobs[i].u=NULL;
 		}
-		if (k==16){
+		if (k==THREAD_CAP){
 			g->buffer=1;
 		}
 		pthread_barrier_wait(g->barrier);//Wait for Phase 2 To complete
@@ -411,35 +412,34 @@ int preflow_main(graph_t* g)
 	
 	
 	/* then loop until only s and/or t have excess preflow. */
-	int number_of_threads;
-	if (g->n>2) number_of_threads = 1+(g->n-3)/10;
-	else number_of_threads = 1;
-	if (number_of_threads>16) number_of_threads = 16;
-	if (number_of_threads == 1) number_of_threads++;
+	if (g->n>2) g->number_of_threads = 1+(g->n-3)/10;
+	else g->number_of_threads = 1;
+	if (g->number_of_threads>THREAD_CAP) g->number_of_threads = THREAD_CAP;
+	if (g->number_of_threads == 1) g->number_of_threads++;
 	
-	//number_of_threads = 3;
-	pthread_barrier_init(g->barrier, NULL, number_of_threads);
-	for (int i = 0; i < 16; i+=1){
+	//g->number_of_threads = 3;
+	pthread_barrier_init(g->barrier, NULL, g->number_of_threads);
+	for (int i = 0; i < THREAD_CAP; i+=1){
 		flow_t f = {.u=NULL, .v=NULL, .e=NULL};
 		g->jobs[i] = f;
 	}
 
 	
-	pthread_t thread_id[number_of_threads];
-	index_t capsulate_g[number_of_threads-1];
-	for (int i = 0; i < number_of_threads-1; i+=1){
+	pthread_t thread_id[g->number_of_threads];
+	index_t capsulate_g[g->number_of_threads-1];
+	for (int i = 0; i < g->number_of_threads-1; i+=1){
 		const int j = 0+i;
 		index_t item = {.g=g, .index=j};
 		capsulate_g[i] = item;
     	pthread_create(&(thread_id[i]), NULL, preflow_push, &capsulate_g[i]);
 	}
-	pthread_create(&(thread_id[number_of_threads-1]), NULL, control_flow, g);
+	pthread_create(&(thread_id[g->number_of_threads-1]), NULL, control_flow, g);
 	
 
-	for (int i = 0; i < number_of_threads; i+=1){
+	for (int i = 0; i < g->number_of_threads; i+=1){
 		void *ret;
     	pthread_join(thread_id[i], ret);
-		printf("Thread %d is done!\n", i);
+		pr("Thread %d is done!\n", i);
 	}
 	return g->t->e;
 }
@@ -462,7 +462,6 @@ static void free_graph(graph_t* g)
 	free(g->e);
 	pthread_barrier_destroy(g->barrier);
 	free(g->barrier);
-	free(g->excess_lock);
 	free(g);
 }
 static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
@@ -479,15 +478,14 @@ static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
 
 	g->n = n;
 	g->m = m;
-	g->excess_lock = xmalloc(sizeof(pthread_mutex_t));
-	pthread_mutex_init(g->excess_lock, NULL);
 	g->barrier = xmalloc(sizeof(pthread_barrier_t));
 	g->v = xcalloc(n, sizeof(node_t));
 	g->e = xcalloc(m, sizeof(edge_t));
-
+	for (i = 0; i < THREAD_CAP; i+=1){
+		g->excess[i] = NULL;
+	}
 	g->s = &g->v[s];
 	g->t = &g->v[t];
-	g->excess = NULL;
 	g->buffer = 0;
 	
 
@@ -538,7 +536,7 @@ int main(int argc, char* argv[]){ //Forsete Test
 	return 0;
 }
 
-
+*/
 
 int main(int argc, char* argv[])
 {
@@ -573,4 +571,4 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-*/
+
