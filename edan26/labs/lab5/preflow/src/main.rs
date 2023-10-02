@@ -30,6 +30,38 @@ impl Edge {
         fn new(uu:usize, vv:usize,cc:i32) -> Edge {
                 Edge { u: uu, v: vv, f: 0, c: cc }      
         }
+		fn other(&self, uu:usize) -> usize {
+			if uu == self.u { self.v } 
+			else { self.u }
+		}
+		
+}
+
+fn push(mut u:usize, mut v:usize, mut e: Edge){
+	let mut d = 0;
+	/*if u.i == e.u {
+		d = cmp::min(u.e, e.c - e.f);
+		e.f += d;
+	} else {
+		d = cmp::min(u.e, e.c + e.f);
+		e.f -= d;
+	}
+	u.e -= d;
+	v.e -= d;
+
+	assert!(d >= 0);
+	assert!(u.e >= 0);
+	assert!(e.f.abs()<= e.c);
+
+	if u.e > 0{
+		println!("U enter excess");
+	}
+
+	if v.e == d{
+		println!("V enter excess");
+	}
+	*/
+	println!("u = {}, v = {}",u , v);
 }
 
 
@@ -81,7 +113,10 @@ fn main() {
 
 	println!("initial pushes");
 	let iter = adj[s].iter();
-
+	for item in iter{
+		let mut edge_to_push = Arc::try_unwrap(edge[*item]).unwrap(); // gives us the index of V
+		push(s, edge_to_push.other(s), edge_to_push);
+	}
 	// but nothing is done here yet...
 
 	while !excess.is_empty() {
