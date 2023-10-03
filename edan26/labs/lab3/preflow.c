@@ -10,7 +10,7 @@
 //#include "timebase.h"
 #include "pthread_barrier.h"
 #define PRINT		0	/* enable/disable prints. */
-#define THREAD_CAP 16
+#define THREAD_CAP 8
 #if PRINT
 #define pr(...)		do { fprintf(stderr, __VA_ARGS__); } while (0)
 #else
@@ -55,11 +55,13 @@ struct flow_t{
 	node_t* u;
 	node_t* v;
 	edge_t* e;
+	flow_t* next;
 };
 
 struct graph_t {
 	int		n;	/* nodes.			*/
 	int		m;	/* edges.			*/
+	int next;
 	node_t*		v;	/* array of n nodes.		*/
 	edge_t*		e;	/* array of m edges.		*/
 	node_t*		s;	/* source.			*/
@@ -67,7 +69,7 @@ struct graph_t {
 	pthread_barrier_t* barrier;
 	int buffer;
 	int number_of_threads;
-	flow_t	jobs[THREAD_CAP];
+	flow_t*	jobs[THREAD_CAP];
 	node_t* excess[THREAD_CAP];
 };
 struct index_t{
@@ -184,6 +186,7 @@ static graph_t* new_graph(FILE* in, int n, int m)
 
 	g->n = n;
 	g->m = m;
+	g->next = 0;
 	g->barrier = xmalloc(sizeof(pthread_barrier_t));
 	g->v = xcalloc(n, sizeof(node_t));
 	g->e = xcalloc(m, sizeof(edge_t));
@@ -191,6 +194,7 @@ static graph_t* new_graph(FILE* in, int n, int m)
 	g->t = &g->v[n-1];
 	for (i = 0; i < THREAD_CAP; i+=1){
 		g->excess[i] = NULL;
+		g->jobs[i] = NULL;
 	}
 	g->buffer = 0;
 	
@@ -219,11 +223,28 @@ static void enter_excess(graph_t* g, node_t* v)
 	 * it first is simplest.
 	 *
 	 */
-	int hash = v->i%(g->number_of_threads-1);
 	if (v != g->t && v != g->s) {
+		g->next+=1;
+		if(g->next==g->number_of_threads-1) g->next = 0;
+		int hash = g->next;
+		pr("hash=%d\n",hash);
 		v->next = g->excess[hash];
 		g->excess[hash] = v;
 	}
+}
+
+static void enter_job(graph_t* g, flow_t* new, int index)
+{
+	new->next = g->jobs[index];
+	g->jobs[index] = new;
+}
+static flow_t* leave_job(graph_t* g, int index)
+{	
+	flow_t* new;
+	new = g->jobs[index];
+	if (new != NULL)
+		g->jobs[index] = new->next;
+	return new;
 }
 
 static node_t* leave_excess(graph_t* g, int index)
@@ -316,7 +337,7 @@ void* preflow_push(void* arg){
 
 			pr("selected u = %d with ", id(g, u));
 			pr("h = %d and e = %d\n", u->h, u->e);
-
+			flow_t* f = malloc(sizeof(flow_t));
 			v = NULL;
 			p = u->edge;
 			while (p != NULL) {
@@ -337,13 +358,12 @@ void* preflow_push(void* arg){
 					v = NULL;
 				}
 			}
-			bool temp = false;
-			flow_t f = {.u=u, .v=v, .e=e};
-			g->jobs[index]=f;
-			pthread_barrier_wait(g->barrier); //Wait for Phase 1 To complete
+			f->u=u;
+			f->v=v;
+			f->e=e;
+			f->next = NULL;
+			enter_job(g, f, index);
 			done_process+=1;
-			pthread_barrier_wait(g->barrier); //Wait for Phase 2 To complete
-			if(g->buffer)break;
 		}
 		if(g->buffer)break;
 		if (u==NULL){ //basically while else
@@ -352,28 +372,32 @@ void* preflow_push(void* arg){
 			if(g->buffer)break;
 		}
 	}
-	pr("%d Completed %d tasks\n", index, done_process);
+	printf("%d Completed %d tasks\n", index, done_process);
 }
 
 void* control_flow(void* arg){
 	graph_t* g = (graph_t*) arg;
-	bool am_working = true;
 	int k;
+	flow_t* f;
 	while(1){
 		k = 0;
 		pthread_barrier_wait(g->barrier);//Wait for Phase 1 To complete
 		for (int i = 0; i < THREAD_CAP; i+=1){
-			flow_t f = g->jobs[i];
-			if (f.u==NULL){	
-				k+=1;
-				continue;
-			}
-			if (f.v != NULL){
-				push(g,f.u, f.v,f.e);
+			int j = 0;
+			while((f = leave_job(g,i)) != NULL){
+			pr("u=%d\n",f->u->i);
+			++j;
+			if (f->v != NULL){
+				push(g,f->u, f->v,f->e);
 			} else {
-				relabel(g,f.u);
+				relabel(g,f->u);
 			}
-			g->jobs[i].u=NULL;
+			free(f);
+			}
+			if (j == 0){
+				++k;
+			}
+			pr("g->jobs[%d] == NULL (%d)\n",i,g->jobs[i]==NULL);
 		}
 		if (k==THREAD_CAP){
 			g->buffer=1;
@@ -402,6 +426,11 @@ int preflow_main(graph_t* g)
 	 *
 	 */
 
+	if (g->n>2) g->number_of_threads = 1+(g->n-3)/10;
+	else g->number_of_threads = 1;
+	if (g->number_of_threads>THREAD_CAP) g->number_of_threads = THREAD_CAP;
+	if (g->number_of_threads == 1) g->number_of_threads++;
+
 	while (p != NULL) {
 		e = p->edge;
 		p = p->next;
@@ -412,17 +441,9 @@ int preflow_main(graph_t* g)
 	
 	
 	/* then loop until only s and/or t have excess preflow. */
-	if (g->n>2) g->number_of_threads = 1+(g->n-3)/10;
-	else g->number_of_threads = 1;
-	if (g->number_of_threads>THREAD_CAP) g->number_of_threads = THREAD_CAP;
-	if (g->number_of_threads == 1) g->number_of_threads++;
 	
 	//g->number_of_threads = 3;
 	pthread_barrier_init(g->barrier, NULL, g->number_of_threads);
-	for (int i = 0; i < THREAD_CAP; i+=1){
-		flow_t f = {.u=NULL, .v=NULL, .e=NULL};
-		g->jobs[i] = f;
-	}
 
 	
 	pthread_t thread_id[g->number_of_threads];
