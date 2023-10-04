@@ -10,7 +10,7 @@
 //#include "timebase.h"
 #include "pthread_barrier.h"
 #define PRINT		0	/* enable/disable prints. */
-#define THREAD_CAP 8
+#define THREAD_CAP 16
 #if PRINT
 #define pr(...)		do { fprintf(stderr, __VA_ARGS__); } while (0)
 #else
@@ -24,23 +24,16 @@ typedef struct edge_t	edge_t;
 typedef struct list_t	list_t;
 typedef struct flow_t	flow_t;
 typedef struct index_t	index_t;
-typedef struct xedge_t  xedge_t;
 
 struct list_t {
 	edge_t*		edge;
 	list_t*		next;
 };
 
-struct xedge_t {  
-        int             u;      /* one of the two nodes.        */
-        int             v;      /* the other.                   */
-        int             c;      /* capacity.                    */
-};
-
 struct node_t {
+	int 	i;
 	int		h;	/* height.			*/
 	int		e;	/* excess flow.			*/
-	int 	i;
 	list_t*		edge;	/* adjacency list.		*/
 	node_t*		next;	/* with excess preflow.		*/
 	atomic_int inc;
@@ -55,22 +48,20 @@ struct edge_t {
 struct flow_t{
 	node_t* u;
 	node_t* v;
-	edge_t* e;
-	flow_t* next;
 };
 
 struct graph_t {
 	int		n;	/* nodes.			*/
 	int		m;	/* edges.			*/
-	int next;
 	node_t*		v;	/* array of n nodes.		*/
 	edge_t*		e;	/* array of m edges.		*/
 	node_t*		s;	/* source.			*/
 	node_t*		t;	/* sink.			*/
+	//node_t*		excess;	/* nodes with e > 0 except s,t.	*/
 	pthread_barrier_t* barrier;
 	int buffer;
 	int number_of_threads;
-	flow_t*	jobs[THREAD_CAP];
+	flow_t	jobs[THREAD_CAP];
 	node_t* excess[THREAD_CAP];
 };
 struct index_t{
@@ -187,7 +178,6 @@ static graph_t* new_graph(FILE* in, int n, int m)
 
 	g->n = n;
 	g->m = m;
-	g->next = 0;
 	g->barrier = xmalloc(sizeof(pthread_barrier_t));
 	g->v = xcalloc(n, sizeof(node_t));
 	g->e = xcalloc(m, sizeof(edge_t));
@@ -195,7 +185,6 @@ static graph_t* new_graph(FILE* in, int n, int m)
 	g->t = &g->v[n-1];
 	for (i = 0; i < THREAD_CAP; i+=1){
 		g->excess[i] = NULL;
-		g->jobs[i] = NULL;
 	}
 	g->buffer = 0;
 	
@@ -205,9 +194,9 @@ static graph_t* new_graph(FILE* in, int n, int m)
 		b = next_int();
 		c = next_int();
 		u = &g->v[a];
-		u-> i = a;
+		u->i = a;
 		v = &g->v[b];
-		v -> i = b;
+		v->i = b;
 		connect(u, v, c, g->e+i);
 	}
 
@@ -224,28 +213,11 @@ static void enter_excess(graph_t* g, node_t* v)
 	 * it first is simplest.
 	 *
 	 */
+	int hash = v->i%(g->number_of_threads-1);
 	if (v != g->t && v != g->s) {
-		g->next+=1;
-		if(g->next==g->number_of_threads-1) g->next = 0;
-		int hash = g->next;
-		pr("hash=%d\n",hash);
 		v->next = g->excess[hash];
 		g->excess[hash] = v;
 	}
-}
-
-static void enter_job(graph_t* g, flow_t* new, int index)
-{
-	new->next = g->jobs[index];
-	g->jobs[index] = new;
-}
-static flow_t* leave_job(graph_t* g, int index)
-{	
-	flow_t* new;
-	new = g->jobs[index];
-	if (new != NULL)
-		g->jobs[index] = new->next;
-	return new;
 }
 
 static node_t* leave_excess(graph_t* g, int index)
@@ -302,7 +274,6 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e)
 	}
 	
 }
-
 static void atomic_push(graph_t* g, node_t* u, node_t* v)
 {
 	int		d;	/* remaining capacity of the edge. */
@@ -334,6 +305,10 @@ static void atomic_push(graph_t* g, node_t* u, node_t* v)
 	}
 	v->inc = 0;
 }
+
+
+
+
 
 static void relabel(graph_t* g, node_t* u)
 {
@@ -370,7 +345,6 @@ void* preflow_push(void* arg){
 
 			pr("selected u = %d with ", id(g, u));
 			pr("h = %d and e = %d\n", u->h, u->e);
-			flow_t* f = malloc(sizeof(flow_t));
 			v = NULL;
 			p = u->edge;
 			while (p != NULL) {
@@ -401,12 +375,13 @@ void* preflow_push(void* arg){
 					v = NULL;
 				}
 			}
-			f->u=u;
-			f->v=v;
-			f->e=e;
-			f->next = NULL;
-			enter_job(g, f, index);
+			bool temp = false;
+			flow_t f = {.u=u, .v=v}; //contains inc
+			g->jobs[index]=f;
+			pthread_barrier_wait(g->barrier); //Wait for Phase 1 To complete
 			done_process+=1;
+			pthread_barrier_wait(g->barrier); //Wait for Phase 2 To complete
+			if(g->buffer)break;
 		}
 		if(g->buffer)break;
 		if (u==NULL){ //basically while else
@@ -415,32 +390,29 @@ void* preflow_push(void* arg){
 			if(g->buffer)break;
 		}
 	}
-	printf("%d Completed %d tasks\n", index, done_process);
+	pr("%d Completed %d tasks\n", index, done_process);
 }
 
 void* control_flow(void* arg){
 	graph_t* g = (graph_t*) arg;
+	bool am_working = true;
 	int k;
-	flow_t* f;
 	while(1){
 		k = 0;
 		pthread_barrier_wait(g->barrier);//Wait for Phase 1 To complete
 		for (int i = 0; i < THREAD_CAP; i+=1){
-			int j = 0;
-			while((f = leave_job(g,i)) != NULL){
-			pr("u=%d\n",f->u->i);
-			++j;
-			if (f->v != NULL){
-				atomic_push(g,f->u, f->v);
+			flow_t f = g->jobs[i];
+			if (f.u==NULL){	
+				k+=1;
+				continue;
+			}
+			
+			if (f.v != NULL){
+				atomic_push(g,f.u, f.v);
 			} else {
-				relabel(g,f->u);
+				relabel(g,f.u);
 			}
-			free(f);
-			}
-			if (j == 0){
-				++k;
-			}
-			pr("g->jobs[%d] == NULL (%d)\n",i,g->jobs[i]==NULL);
+			g->jobs[i].u=NULL;
 		}
 		if (k==THREAD_CAP){
 			g->buffer=1;
@@ -450,7 +422,7 @@ void* control_flow(void* arg){
 	}
 }
 	
-int preflow_main(graph_t* g)
+int preflow(graph_t* g)
 {
 	node_t*		s;
 	node_t*		u;
@@ -469,11 +441,6 @@ int preflow_main(graph_t* g)
 	 *
 	 */
 
-	if (g->n>2) g->number_of_threads = 1+(g->n-3)/10;
-	else g->number_of_threads = 1;
-	if (g->number_of_threads>THREAD_CAP) g->number_of_threads = THREAD_CAP;
-	if (g->number_of_threads == 1) g->number_of_threads++;
-
 	while (p != NULL) {
 		e = p->edge;
 		p = p->next;
@@ -485,8 +452,17 @@ int preflow_main(graph_t* g)
 	
 	/* then loop until only s and/or t have excess preflow. */
 	
+	if (g->n>2) g->number_of_threads = 1+(g->n-3)/10;
+	else g->number_of_threads = 1;
+	if (g->number_of_threads>THREAD_CAP) g->number_of_threads = THREAD_CAP;
+	if (g->number_of_threads == 1) g->number_of_threads++;
+	
 	//g->number_of_threads = 3;
 	pthread_barrier_init(g->barrier, NULL, g->number_of_threads);
+	for (int i = 0; i < THREAD_CAP; i+=1){
+		flow_t f = {.u=NULL, .v=NULL};
+		g->jobs[i] = f;
+	}
 
 	
 	pthread_t thread_id[g->number_of_threads];
@@ -528,96 +504,23 @@ static void free_graph(graph_t* g)
 	free(g->barrier);
 	free(g);
 }
-static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
-{
-	graph_t*	g;
-	node_t*		u;
-	node_t*		v;
-	int		i;
-	int		a;
-	int		b;
-	int		c;
-	
-	g = xmalloc(sizeof(graph_t));
-
-	g->n = n;
-	g->m = m;
-	g->barrier = xmalloc(sizeof(pthread_barrier_t));
-	g->v = xcalloc(n, sizeof(node_t));
-	g->e = xcalloc(m, sizeof(edge_t));
-	for (i = 0; i < THREAD_CAP; i+=1){
-		g->excess[i] = NULL;
-	}
-	g->s = &g->v[s];
-	g->t = &g->v[t];
-	g->buffer = 0;
-	
-
-	for (i = 0; i < m; i += 1) {
-		a = edge_list[i].u;
-		b = edge_list[i].v;
-		c = edge_list[i].c;
-		u = &g->v[a];
-		v = &g->v[b];
-		connect(u, v, c, g->e+i);
-	}
-
-	return g;
-}
-
-
-
-
-
-int preflow(int n, int m, int s, int t, xedge_t* e){
-	graph_t* g;
-	int f;
-	g = forsete_graph(n,m,s,t,e);
-	
-	f = preflow_main(g);
-
-	free_graph(g);
-
-	return f;
-	
-}
-/*
-int main(int argc, char* argv[]){ //Forsete Test
-	xedge_t* e = xcalloc(2, sizeof(xedge_t));
-	e[0].u = 0;
-	e[0].v = 1;
-	e[0].c = 10;
-	e[1].u = 1;
-	e[1].v = 2;
-	e[1].c = 2;
-
-	int f = preflow(3,2,0,2,e);
-
-	printf("f = %d\n", f);
-
-	free(e);
-
-	return 0;
-}
-
-*/
 
 int main(int argc, char* argv[])
 {
-	FILE*		in;	// input file set to stdin	
-	graph_t*	g;	// undirected graph. 		
-	int		f;	// output from preflow.		
-	int		n;	// number of nodes.		
-	int		m;	// number of edges.		
+	FILE*		in;	/* input file set to stdin	*/
+	graph_t*	g;	/* undirected graph. 		*/
+	int		f;	/* output from preflow.		*/
+	int		n;	/* number of nodes.		*/
+	int		m;	/* number of edges.		*/
 
-	progname = argv[0];	// name is a string in argv[0]. 
+	progname = argv[0];	/* name is a string in argv[0]. */
 	//init_timebase();
-	in = stdin;		// same as System.in in Java.
+	in = stdin;		/* same as System.in in Java.	*/
 
 	n = next_int();
 	m = next_int();
 
-	// skip C and P from the 6railwayplanning lab in EDAF05 
+	/* skip C and P from the 6railwayplanning lab in EDAF05 */
 	next_int();
 	next_int();
 
@@ -626,7 +529,7 @@ int main(int argc, char* argv[])
 	fclose(in);
 
 	//double	begin = timebase_sec();
-	f = preflow_main(g);
+	f = preflow(g);
 	//double end = timebase_sec();
 	//printf("t = %lf s\n", end-begin);
 	printf("f = %d\n", f);
@@ -635,4 +538,3 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-
