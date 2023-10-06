@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 struct Node {
 	i:	usize,			/* index of itself for debugging.	*/
 	e:	i32,			/* excess preflow.			*/
-	h:	i32,			/* height.				*/
+	h:	usize,			/* height.				*/
 }
 
 struct Edge {
@@ -23,6 +23,9 @@ impl Node {
 	fn new(ii:usize) -> Node {
 		Node { i: ii, e: 0, h: 0 }
 	}
+	fn push(&mut self, d:i32) {
+		self.e += d;
+	}
 
 }
 
@@ -34,34 +37,15 @@ impl Edge {
 			if uu == self.u { self.v } 
 			else { self.u }
 		}
+		fn add_flow(&mut self, sender: usize, flow:i32) {
+			if sender == self.u {self.f+=flow;}
+			else {self.f -= flow;}
+		}
+		fn is_u(&self, uu:usize) -> bool {
+			if uu == self.u { true }
+			else { false }
+		}
 		
-}
-
-fn push(mut u:usize, mut v:usize, mut e: Edge){
-	let mut d = 0;
-	/*if u.i == e.u {
-		d = cmp::min(u.e, e.c - e.f);
-		e.f += d;
-	} else {
-		d = cmp::min(u.e, e.c + e.f);
-		e.f -= d;
-	}
-	u.e -= d;
-	v.e -= d;
-
-	assert!(d >= 0);
-	assert!(u.e >= 0);
-	assert!(e.f.abs()<= e.c);
-
-	if u.e > 0{
-		println!("U enter excess");
-	}
-
-	if v.e == d{
-		println!("V enter excess");
-	}
-	*/
-	println!("u = {}, v = {}",u , v);
 }
 
 
@@ -112,18 +96,68 @@ fn main() {
 	}
 
 	println!("initial pushes");
+	node[s].lock().unwrap().h = n;
 	let iter = adj[s].iter();
 	for item in iter{
-		let mut edge_to_push = Arc::try_unwrap(edge[*item]).unwrap(); // gives us the index of V
-		push(s, edge_to_push.other(s), edge_to_push);
+		let mut edge_to_push = edge[*item].lock().unwrap();
+		let target = edge_to_push.other(s);
+		let d = edge_to_push.c;
+		node[s].lock().unwrap().push(-d);
+		node[target].lock().unwrap().push(d);
+		edge_to_push.add_flow(s,d);
+		excess.insert(0,target);
 	}
 	// but nothing is done here yet...
 
 	while !excess.is_empty() {
 		let mut c = 0;
-		let u = excess.pop_front().unwrap();
+		let u = excess.pop_front().unwrap(); //index of a node with excess
+		println!("{}",excess.len());
+		if u == s || u == t {continue;}
+		let iter = adj[u].iter();
+		let mut v = u;
+		for item in iter{
+			let mut edge_to_push = edge[*item].lock().unwrap();
+			v = edge_to_push.other(u);
+			let mut b = 0;
+			if edge_to_push.is_u(u) {
+				b = 1;
+			}
+			else {
+				b = -1
+			}
+			if node[v].lock().unwrap().h < node[u].lock().unwrap().h && b * edge_to_push.f < edge_to_push.c {
+				let mut d = 0;
+				if edge_to_push.is_u(u) {
+					d = cmp::min(node[u].lock().unwrap().e, edge_to_push.c - edge_to_push.f);
+					edge_to_push.f += d;
+				} else {
+					d = cmp::min(node[u].lock().unwrap().e, edge_to_push.c + edge_to_push.f);
+					edge_to_push.f -= d;
+				}
+				node[u].lock().unwrap().e -= d;
+				node[v].lock().unwrap().e += d;
+				
+				if node[u].lock().unwrap().e > 0 {
+					excess.insert(0,u);
+				}
+				if node[v].lock().unwrap().e == d {
+					excess.insert(0,v);
+				}
+				break;
+			} else {
+				v = u;
+			}
+		}
+		if u != v {
+
+		} else {
+			node[u].lock().unwrap().h+=1;
+			excess.insert(0,u);
+			println!("Relabeling h = {}", node[u].lock().unwrap().h);
+		}
 	}
 
-	println!("f = {}", 0);
+	println!("f = {}", node[t].lock().unwrap().e);
 
 }
