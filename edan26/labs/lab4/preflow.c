@@ -547,6 +547,7 @@ static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
 	g->e = xcalloc(m, sizeof(edge_t));
 	for (i = 0; i < THREAD_CAP; i+=1){
 		g->excess[i] = NULL;
+		g->jobs[i] = NULL;
 	}
 	g->s = &g->v[s];
 	g->t = &g->v[t];
@@ -599,9 +600,9 @@ int main(int argc, char* argv[]){ //Forsete Test
 
 	return 0;
 }
-
 */
 
+/*
 int main(int argc, char* argv[])
 {
 	FILE*		in;	// input file set to stdin	
@@ -635,4 +636,4 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-
+*/
