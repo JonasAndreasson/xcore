@@ -57,10 +57,11 @@ fn main() {
 	let _p: usize = read!();	/* c and p are in the input from 6railwayplanning.	*/
 	let mut node = vec![];
 	let mut edge = vec![];
+	let mut threads = vec![];
 	let mut adj: Vec<LinkedList<usize>> =Vec::with_capacity(n);
 	let mut excess: VecDeque<usize> = VecDeque::new();
 	let debug = false;
-
+	let num_threads = 8;
 	let s = 0;
 	let t = n-1;
 
@@ -107,55 +108,72 @@ fn main() {
 		edge_to_push.add_flow(s,d);
 		excess.insert(0,target);
 	}
-	// but nothing is done here yet...
 
-	while !excess.is_empty() {
-		let mut c = 0;
-		let u = excess.pop_front().unwrap(); //index of a node with excess
-		println!("{}",excess.len());
-		if u == s || u == t {continue;}
-		let iter = adj[u].iter();
-		let mut v = u;
-		for item in iter{
-			let mut edge_to_push = edge[*item].lock().unwrap();
-			v = edge_to_push.other(u);
-			let mut b = 0;
-			if edge_to_push.is_u(u) {
-				b = 1;
-			}
-			else {
-				b = -1
-			}
-			if node[v].lock().unwrap().h < node[u].lock().unwrap().h && b * edge_to_push.f < edge_to_push.c {
-				let mut d = 0;
-				if edge_to_push.is_u(u) {
-					d = cmp::min(node[u].lock().unwrap().e, edge_to_push.c - edge_to_push.f);
-					edge_to_push.f += d;
+	let ex = Arc::new(Mutex::new(excess));
+
+	for _ in 0 .. num_threads {
+		let mut completed_tasks = 0;
+		let excess = ex.clone();
+		let a = adj.clone();
+		let e = edge.clone();
+		let n = node.clone();
+		let h = thread::spawn( move || {
+			while !excess.lock().unwrap().is_empty() {
+				let u = excess.lock().unwrap().pop_front().unwrap_or_else(|| s); //index of a node with excess
+				if u == s || u == t {continue;}
+				let iter = a[u].iter();
+				let mut v = u;
+				for item in iter{
+					let mut edge_to_push = e[*item].lock().unwrap();
+					v = edge_to_push.other(u);
+					let mut b = 0;
+					if edge_to_push.is_u(u) {
+						b = 1;
+					}
+					else {
+						b = -1
+					}
+					if n[v].lock().unwrap().h < n[u].lock().unwrap().h && b * edge_to_push.f < edge_to_push.c {
+						let mut d = 0;
+						if edge_to_push.is_u(u) {
+							d = cmp::min(n[u].lock().unwrap().e, edge_to_push.c - edge_to_push.f);
+							edge_to_push.f += d;
+						} else {
+							d = cmp::min(n[u].lock().unwrap().e, edge_to_push.c + edge_to_push.f);
+							edge_to_push.f -= d;
+						}
+						{
+						n[u].lock().unwrap().e -= d;
+						if n[u].lock().unwrap().e > 0 {
+							excess.lock().unwrap().insert(0,u);
+						}
+						}
+						{
+						n[v].lock().unwrap().e += d;
+						if n[v].lock().unwrap().e == d {
+							excess.lock().unwrap().insert(0,v);
+						}
+						}
+						break;
+					} else {
+						v = u;
+					}
+				}
+				if u != v {
+
 				} else {
-					d = cmp::min(node[u].lock().unwrap().e, edge_to_push.c + edge_to_push.f);
-					edge_to_push.f -= d;
+					n[u].lock().unwrap().h+=1;
+					excess.lock().unwrap().insert(0,u);
 				}
-				node[u].lock().unwrap().e -= d;
-				node[v].lock().unwrap().e += d;
-				
-				if node[u].lock().unwrap().e > 0 {
-					excess.insert(0,u);
-				}
-				if node[v].lock().unwrap().e == d {
-					excess.insert(0,v);
-				}
-				break;
-			} else {
-				v = u;
-			}
-		}
-		if u != v {
+				completed_tasks+=1;
+	} 
+	println!("Completed {} tasks", completed_tasks);
+	});
+	threads.push(h);
+}
 
-		} else {
-			node[u].lock().unwrap().h+=1;
-			excess.insert(0,u);
-			println!("Relabeling h = {}", node[u].lock().unwrap().h);
-		}
+	for h in threads {
+		h.join().unwrap();
 	}
 
 	println!("f = {}", node[t].lock().unwrap().e);
