@@ -65,6 +65,7 @@
 		(insert excess-nodes v)))
 
 (defn push [edge-index u nodes edges excess-nodes change s t]
+	(do
 	(let [v 	(other @(edges edge-index) u)]
 	(let [uh	(node-height @(nodes u))]
 	(let [vh	(node-height @(nodes v))]
@@ -73,7 +74,24 @@
 	(let [f 	(edge-flow @(edges i))]
 	(let [c 	(edge-capacity @(edges i))]
 
-	(if debug
+	(if (u-is-edge-u @(edges i) u)
+	(do
+	(let [d (min e (- c f))]
+	(move-excess nodes u v d)
+	(increase-flow edges i d)
+	(if (== d (node-excess @(nodes v))) (do (check-insert excess-nodes v s t))))
+	))
+	; else
+	(if (not(u-is-edge-u @(edges i) u))
+	(do(let [d (min e (+ c f))]
+	(move-excess nodes u v d)
+	(decrease-flow edges i d)
+	(if (== d (node-excess @(nodes v))) (do (check-insert excess-nodes v s t))))
+	))
+	(if (has-excess u nodes) (do (check-insert excess-nodes u s t)))
+	
+
+		(if debug
 		(do
 			(println "--------- push -------------------")
 			(println "i = " i)
@@ -84,11 +102,8 @@
 			(println "c = " c)
 			(println "v = " v)
 			(println "vh = " vh)))
-	(let [d (min e (- c f))]
-	(move-excess nodes u v d)
-	(if (has-excess u nodes) (do (check-insert excess-nodes u s t)))
-	(if (== d (node-excess @(nodes v))) (do (check-insert excess-nodes v s t)))
-	
+
+
 	)))))))))
 
 
@@ -146,7 +161,6 @@
 
 (defn relabel [u nodes]
 (ref-set (nodes u) (update @(nodes u) :h + 1))
-(println "Relabel")
 )
 
 
@@ -154,15 +168,18 @@
 
 
 (defn rec-edge [u nodes adj edges excess-nodes change s t]
+(do 
 (if (not (empty? adj))
 (let [updated-change (try-push u nodes (first adj) edges excess-nodes s t)]
 (rec-edge u nodes (rest adj) edges excess-nodes updated-change s t)
 ))
 (if (and (empty? adj) (== change 0))
+	(do
 	(relabel u nodes)
-	(check-insert excess-nodes u s t)
+	(if (has-excess u nodes) (do (check-insert excess-nodes u s t)))
+	)
 )
-)
+))
 
 
 (dosync (read-graph 0 m nodes edges))
@@ -172,9 +189,9 @@
 	(dosync (initial-pushes nodes edges s t excess-nodes))
 
 	(while (not (empty? @excess-nodes))
-		(let [u (remove-any excess-nodes)]
-			(rec-edge u nodes (node-adj @(nodes u)) edges excess-nodes 0 s t)
-		)
+		(dosync(let [u (remove-any excess-nodes)]
+			 (rec-edge u nodes (node-adj @(nodes u)) edges excess-nodes 0 s t)
+		))
 	)
 
 	(println "f =" (node-excess @(nodes t))))
