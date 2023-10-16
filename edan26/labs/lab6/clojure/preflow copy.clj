@@ -79,16 +79,16 @@
 	(let [d (min e (- c f))]
 	(move-excess nodes u v d)
 	(increase-flow edges i d)
-	(if (== d (node-excess @(nodes v))) (dosync (check-insert excess-nodes v s t))))
+	(if (== d (node-excess @(nodes v))) (do (check-insert excess-nodes v s t))))
 	))
 	; else
 	(if (not(u-is-edge-u @(edges i) u))
 	(do(let [d (min e (+ c f))]
 	(move-excess nodes u v d)
 	(decrease-flow edges i d)
-	(if (== d (node-excess @(nodes v))) (dosync (check-insert excess-nodes v s t))))
+	(if (== d (node-excess @(nodes v))) (do (check-insert excess-nodes v s t))))
 	))
-	(if (has-excess u nodes) (dosync (check-insert excess-nodes u s t)))
+	(if (has-excess u nodes) (do (check-insert excess-nodes u s t)))
 	
 
 		(if debug
@@ -154,7 +154,7 @@
 	(let [uh	(node-height @(nodes u))]
 	(let [vh	(node-height @(nodes v))]
 	(if (> uh vh) (do 
-	(dosync(push adj-edge u nodes edges excess-nodes 0 s t))
+	(push adj-edge u nodes edges excess-nodes 0 s t)
 	1
 	))
 	(do 0)
@@ -177,17 +177,17 @@
 ))
 (if (and(and (empty? adj) (== change 0))(has-excess u nodes)) ;if it's been through all and no push has been made
 	(do
-	(dosync(relabel u nodes))
-	(if (has-excess u nodes) (dosync (check-insert excess-nodes u s t)))
+	(relabel u nodes)
+	(if (has-excess u nodes) (do (check-insert excess-nodes u s t)))
 	)
 )
 ))
 
 (defn make-preflow []
 (while (not (empty? @excess-nodes))
-		(let [u (dosync (remove-any excess-nodes))]
-			 (if (not(== -1 u)) (rec-edge u nodes (node-adj @(nodes u)) edges excess-nodes 0 s t))
-		)
+		(dosync(let [u (remove-any excess-nodes)]
+			 (rec-edge u nodes (node-adj @(nodes u)) edges excess-nodes 0 s t)
+		))
 	)
 )
 

@@ -10,7 +10,7 @@
 //#include "timebase.h"
 #include "pthread_barrier.h"
 #define PRINT		0	/* enable/disable prints. */
-#define THREAD_CAP 8
+#define THREAD_CAP 4
 #if PRINT
 #define pr(...)		do { fprintf(stderr, __VA_ARGS__); } while (0)
 #else
@@ -43,6 +43,7 @@ struct node_t {
 	int 	i;
 	list_t*		edge;	/* adjacency list.		*/
 	node_t*		next;	/* with excess preflow.		*/
+	int inc;
 };
 
 struct edge_t {
@@ -302,6 +303,39 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e)
 	
 }
 
+static void atomic_push(graph_t* g, node_t* u, node_t* v)
+{
+	int		d;	/* remaining capacity of the edge. */
+
+	if (u->inc != 0){
+		u->e += u->inc;
+		u->inc = 0;
+	}
+	if (v->inc == 0){
+		if (u->e > 0) {
+		enter_excess(g, u);
+		}
+		return;
+	}
+	v->e += v->inc;
+	/* the following are always true. */
+	assert(u->e >= 0);
+	if (u->e > 0) {
+
+		/* still some remaining so let u push more. */
+		enter_excess(g, u);
+	}
+	if (v->e == v->inc) {
+
+		/* since v has d excess now it had zero before and
+		 * can now push.
+		 *
+		 */
+		enter_excess(g, v);
+	}
+	v->inc = 0;
+}
+
 static void relabel(graph_t* g, node_t* u)
 {
 
@@ -353,6 +387,18 @@ void* preflow_push(void* arg){
 					}
 
 				if (u->h > v->h && b * e->f < e->c){
+					int d;
+					if (u == e->u) {
+						d = MIN(u->e, e->c - e->f);
+						e->f += d;
+					} else {
+						d = MIN(u->e, e->c + e->f);
+						e->f -= d;
+					}
+					__transaction_atomic{
+					u->inc -= d;
+					v->inc += d;
+					}
 					break;
 				}else{
 					v = NULL;
@@ -388,7 +434,7 @@ void* control_flow(void* arg){
 			pr("u=%d\n",f->u->i);
 			++j;
 			if (f->v != NULL){
-				push(g,f->u, f->v,f->e);
+				atomic_push(g,f->u, f->v);
 			} else {
 				relabel(g,f->u);
 			}
@@ -499,14 +545,16 @@ static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
 
 	g->n = n;
 	g->m = m;
+	g->next = 0;
 	g->barrier = xmalloc(sizeof(pthread_barrier_t));
 	g->v = xcalloc(n, sizeof(node_t));
 	g->e = xcalloc(m, sizeof(edge_t));
-	for (i = 0; i < THREAD_CAP; i+=1){
-		g->excess[i] = NULL;
-	}
 	g->s = &g->v[s];
 	g->t = &g->v[t];
+	for (i = 0; i < THREAD_CAP; i+=1){
+		g->excess[i] = NULL;
+		g->jobs[i] = NULL;
+	}
 	g->buffer = 0;
 	
 
@@ -515,7 +563,9 @@ static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
 		b = edge_list[i].v;
 		c = edge_list[i].c;
 		u = &g->v[a];
+		u->i = a;
 		v = &g->v[b];
+		v->i = b;
 		connect(u, v, c, g->e+i);
 	}
 
@@ -556,8 +606,8 @@ int main(int argc, char* argv[]){ //Forsete Test
 
 	return 0;
 }
-
 */
+
 
 int main(int argc, char* argv[])
 {
