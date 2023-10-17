@@ -499,14 +499,16 @@ static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
 
 	g->n = n;
 	g->m = m;
+	g->next = 0;
 	g->barrier = xmalloc(sizeof(pthread_barrier_t));
 	g->v = xcalloc(n, sizeof(node_t));
 	g->e = xcalloc(m, sizeof(edge_t));
-	for (i = 0; i < THREAD_CAP; i+=1){
-		g->excess[i] = NULL;
-	}
 	g->s = &g->v[s];
 	g->t = &g->v[t];
+	for (i = 0; i < THREAD_CAP; i+=1){
+		g->excess[i] = NULL;
+		g->jobs[i] = NULL;
+	}
 	g->buffer = 0;
 	
 
@@ -515,7 +517,9 @@ static graph_t* forsete_graph(int n, int m, int s, int t, xedge_t* edge_list)
 		b = edge_list[i].v;
 		c = edge_list[i].c;
 		u = &g->v[a];
+		u->i = a;
 		v = &g->v[b];
+		v->i = b;
 		connect(u, v, c, g->e+i);
 	}
 
@@ -557,7 +561,7 @@ int main(int argc, char* argv[]){ //Forsete Test
 	return 0;
 }
 
-*/
+
 
 int main(int argc, char* argv[])
 {
@@ -592,4 +596,4 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-
+*/
