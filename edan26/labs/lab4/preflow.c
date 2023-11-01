@@ -10,11 +10,19 @@
 //#include "timebase.h"
 #include "pthread_barrier.h"
 #define PRINT		0	/* enable/disable prints. */
-#define THREAD_CAP 64
+#define THREAD_CAP 8
+#define MEM_ORD 0 /*1 == relaxed, 0 == seq_cst*/
 #if PRINT
 #define pr(...)		do { fprintf(stderr, __VA_ARGS__); } while (0)
 #else
 #define pr(...)		/* no effect at all */
+#endif
+#if MEM_ORD
+#define store(...) do { atomic_store_explicit(__VA_ARGS__, memory_order_relaxed);}while (0)
+#define add(...) do {atomic_fetch_add_explicit(__VA_ARGS__, memory_order_relaxed);} while(0)
+#else
+#define store(...) do { atomic_store_explicit(__VA_ARGS__, memory_order_seq_cst);}while (0)
+#define add(...) do {atomic_fetch_add_explicit(__VA_ARGS__, memory_order_seq_cst);} while(0)
 #endif
 
 #define MIN(a,b)	(((a)<=(b))?(a):(b))
@@ -308,7 +316,7 @@ static void atomic_push(graph_t* g, node_t* u, node_t* v)
 	int		d;	/* remaining capacity of the edge. */
 	if (u->inc != 0){
 		u->e += u->inc;
-		u->inc = 0;
+		store(&u->inc, 0);
 	}
 	if (v->inc == 0){
 		if (u->e > 0) {
@@ -332,7 +340,8 @@ static void atomic_push(graph_t* g, node_t* u, node_t* v)
 		 */
 		enter_excess(g, v);
 	}
-	v->inc = 0;
+
+	store(&v->inc, 0);
 }
 
 static void relabel(graph_t* g, node_t* u)
@@ -394,8 +403,11 @@ void* preflow_push(void* arg){
 						d = MIN(u->e, e->c + e->f);
 						e->f -= d;
 					}
-					u->inc -= d;
-					v->inc += d;
+					
+					
+					add(&u->inc,-d);
+					add(&v->inc,d);
+					
 					break;
 				}else{
 					v = NULL;
@@ -606,6 +618,7 @@ int main(int argc, char* argv[]){ //Forsete Test
 
 
 
+*/
 int main(int argc, char* argv[])
 {
 	FILE*		in;	// input file set to stdin	
@@ -639,4 +652,3 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-*/

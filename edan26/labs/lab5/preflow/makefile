@@ -28,7 +28,7 @@ all:
 	cargo run < $(DATA)/big/001.in | grep '^f = ' | sed 's/f = //' > out
 	diff $(DATA)/big/001.ans out
 
-	cargo run < $(DATA)/big/002.in | grep '^f = ' | sed 's/f = //' > out
+	cargo run --release < $(DATA)/big/002.in | grep '^f = ' | sed 's/f = //' > out
 	diff $(DATA)/big/002.ans out
 
 	cargo run < $(DATA)/huge/001.in | grep '^f = ' | sed 's/f = //' > out

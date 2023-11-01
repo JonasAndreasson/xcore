@@ -10,7 +10,7 @@
 //#include "timebase.h"
 #include "pthread_barrier.h"
 #define PRINT		0	/* enable/disable prints. */
-#define THREAD_CAP 8
+#define THREAD_CAP 64
 #if PRINT
 #define pr(...)		do { fprintf(stderr, __VA_ARGS__); } while (0)
 #else

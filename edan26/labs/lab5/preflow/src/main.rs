@@ -1,4 +1,7 @@
+#![allow(warnings)]
+
 #[macro_use] extern crate text_io;
+
 
 use std::sync::{Mutex,Arc};
 use std::collections::LinkedList;
@@ -118,9 +121,14 @@ fn main() {
 		let e = edge.clone();
 		let n = node.clone();
 		let h = thread::spawn( move || {
-			while !excess.lock().unwrap().is_empty() {
-				let u = excess.lock().unwrap().pop_front().unwrap_or_else(|| s); //index of a node with excess
-				if u == s || u == t {continue;}
+			loop {
+				let mut excess_lock = excess.lock().unwrap();
+				if excess_lock.is_empty() {
+					break;
+				}
+				let u = excess_lock.pop_front().unwrap(); //index of a node with excess
+				drop(excess_lock);
+				if u == s || u == t {continue;} 
 				let iter = a[u].iter();
 				let mut v = u;
 				for item in iter{
@@ -132,25 +140,34 @@ fn main() {
 					}
 					else {
 						b = -1
+					} //lås här
+					let mut v_lock;
+					let mut u_lock;
+					if u<v {
+						u_lock = n[u].lock().unwrap();
+						v_lock = n[v].lock().unwrap();	
+					} else {
+						v_lock = n[v].lock().unwrap();
+						u_lock = n[u].lock().unwrap();
 					}
-					if n[v].lock().unwrap().h < n[u].lock().unwrap().h && b * edge_to_push.f < edge_to_push.c {
+					if v_lock.h < u_lock.h && b * edge_to_push.f < edge_to_push.c {
 						let mut d = 0;
 						if edge_to_push.is_u(u) {
-							d = cmp::min(n[u].lock().unwrap().e, edge_to_push.c - edge_to_push.f);
+							d = cmp::min(u_lock.e, edge_to_push.c - edge_to_push.f);
 							edge_to_push.f += d;
 						} else {
-							d = cmp::min(n[u].lock().unwrap().e, edge_to_push.c + edge_to_push.f);
+							d = cmp::min(u_lock.e, edge_to_push.c + edge_to_push.f);
 							edge_to_push.f -= d;
 						}
 						{
-						n[u].lock().unwrap().e -= d;
-						if n[u].lock().unwrap().e > 0 {
+						u_lock.e -= d;
+						if u_lock.e > 0 {
 							excess.lock().unwrap().insert(0,u);
 						}
 						}
 						{
-						n[v].lock().unwrap().e += d;
-						if n[v].lock().unwrap().e == d {
+						v_lock.e += d;
+						if v_lock.e == d {
 							excess.lock().unwrap().insert(0,v);
 						}
 						}
@@ -158,6 +175,8 @@ fn main() {
 					} else {
 						v = u;
 					}
+					drop(u_lock);
+					drop(v_lock);
 				}
 				if u != v {
 
